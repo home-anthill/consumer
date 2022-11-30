@@ -3,6 +3,5 @@
 .vscode
 target
 logs
-consumer-localhost-1883
 .dockerignore
 Dockerfile
