@@ -1,0 +1,6 @@
+.idea
+.DS_Store
+.vscode
+target
+logs
+consumer-localhost-1883
