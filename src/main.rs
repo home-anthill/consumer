@@ -1,10 +1,9 @@
 use dotenvy::dotenv;
 use futures_lite::StreamExt;
-use lapin::{Channel, Consumer};
 use log::{debug, error, info};
 use std::env;
 
-use consumer::amqp::{amqp_connect, read_message};
+use consumer::amqp::{read_message, AmqpClient};
 use consumer::db::connect;
 use consumer::db::sensor::update_message;
 use consumer::models::message::{GenericMessage, Message};
@@ -47,20 +46,13 @@ async fn main() {
     };
 
     // 5. Init RabbitMQ
-    let mut consumer: Consumer = match amqp_connect(
-        amqp_uri.as_str(),
-        amqp_queue_name.as_str(),
-        amqp_consumer_tag.as_str(),
-    )
-    .await
-    {
-        Ok(consumer) => consumer,
-        Err(err) => {
-            error!(target: "app", "Cannot create AMQP consumer. Err = {:?}", err);
-            return;
-        }
-    };
-    while let Some(delivery_res) = consumer.next().await {
+    let mut amqp_client: AmqpClient = AmqpClient::new(
+        amqp_uri.clone(),
+        amqp_queue_name.clone(),
+        amqp_consumer_tag.clone(),
+    );
+    amqp_client.connect_with_retry_loop().await;
+    while let Some(delivery_res) = amqp_client.consumer.as_mut().unwrap().next().await {
         if let Ok(delivery) = delivery_res {
             let payload_str: &str = read_message(&delivery).await;
             // deserialize to a GenericMessage (with turbofish operator "::<GenericMessage>")
@@ -144,6 +136,8 @@ async fn main() {
             }
         } else {
             error!(target: "app", "AMQP consumer - delivery_res error = {:?}", delivery_res.err());
+            info!(target: "app", "AMQP reconnecting...");
+            amqp_client.connect_with_retry_loop().await;
         }
     }
 }
