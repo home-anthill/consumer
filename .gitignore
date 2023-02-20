@@ -3,4 +3,5 @@
 .vscode
 target
 logs
+.env
 coverage
