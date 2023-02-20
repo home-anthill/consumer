@@ -64,7 +64,9 @@ jobs:
           sudo apt-get update -y
           wget http://localhost:15672/cli/rabbitmqadmin
           chmod +x rabbitmqadmin
-          ./rabbitmqadmin --version
+          mkdir -p /usr/local/sbin
+          mv rabbitmqadmin /usr/local/sbin/rabbitmqadmin
+          /usr/local/sbin/rabbitmqadmin --version
       - name: Run tests
         run: |
           cp .env_template .env
