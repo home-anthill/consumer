@@ -65,13 +65,6 @@ jobs:
           wget http://localhost:15672/cli/rabbitmqadmin
           chmod +x rabbitmqadmin
           ./rabbitmqadmin --version
-          # sudo apt-get install mosquitto mosquitto-clients -y
-          #          echo "installed!!!"
-          #          mosquitto_passwd -b -c password_file mosquser Password1!
-          #          sudo mv password_file /etc/mosquitto/password_file
-          #          sudo systemctl enable mosquitto
-          #          sudo systemctl start mosquitto
-          # rabbitmqadmin --version
       - name: Run tests
         run: |
           cp .env_template .env

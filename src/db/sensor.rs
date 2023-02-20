@@ -1,49 +1,46 @@
-use log::{debug, error, info};
-use std::fmt::Debug;
+use log::{error, info};
 
-use mongodb::bson::{doc, DateTime};
+use crate::models::generic_message::GenericMessage;
+use mongodb::bson::{doc, Bson, DateTime};
 use mongodb::options::FindOneAndUpdateOptions;
 use mongodb::options::ReturnDocument;
 use mongodb::Database;
-use serde::Serialize;
 
-use crate::models::message::Message;
-use crate::models::payload_trait::PayloadTrait;
 use crate::models::sensor::Sensor;
 use crate::models::sensor::SensorDocument;
 
-pub async fn update_message<T: PayloadTrait + Sized + Serialize + Debug>(
+pub async fn update_sensor(
     db: &Database,
-    message: &Message<T>,
+    generic_msg: &GenericMessage,
+    value: &Bson,
 ) -> mongodb::error::Result<Option<Sensor>> {
-    info!(target: "app", "update_message - Called with message = {:?}", message);
+    info!(target: "app", "update_sensor - Called with generic_msg = {:?}", generic_msg);
 
-    let collection = db.collection::<SensorDocument>(&message.topic.feature);
+    let collection = db.collection::<SensorDocument>(&generic_msg.topic.feature);
 
     let find_one_and_update_options = FindOneAndUpdateOptions::builder()
         .return_document(ReturnDocument::After)
         .build();
 
-    debug!(target: "app", "update_message - Finding and updating sensor type = {} with uuid = {}", &message.topic.feature, &message.uuid);
-
     let sensor_doc = collection
         .find_one_and_update(
-            doc! { "uuid": &message.uuid, "apiToken": &message.api_token },
+            doc! { "uuid": generic_msg.uuid.clone(), "apiToken": generic_msg.api_token.clone() },
             doc! { "$set": {
-                    "value": message.payload.get_value(),
+                    "value": value,
                     "modifiedAt": DateTime::now()
                 }
             },
             find_one_and_update_options,
         )
         .await
-        .unwrap();
+        .unwrap(); // TODO ATTENTION I should check and return a custom DbError here Err(....) and not unwrap and ignore the error.
 
     // return result
     match sensor_doc {
         Some(sensor_doc) => Ok(Some(document_to_json(&sensor_doc))),
         None => {
-            error!(target: "app", "update_message - Cannot find and update sensor with uuid = {}", &message.uuid);
+            error!(target: "app", "update_sensor - Cannot find and update sensor with uuid = {}", generic_msg.uuid);
+            // TODO ATTENTION I should return a custom DbError here Err(....) and not Ok.
             Ok(None)
         }
     }
@@ -61,5 +58,51 @@ fn document_to_json(sensor_doc: &SensorDocument) -> Sensor {
         createdAt: sensor_doc.createdAt.to_string(),
         modifiedAt: sensor_doc.modifiedAt.to_string(),
         value: sensor_doc.value,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::sensor::document_to_json;
+    use crate::models::sensor::{Sensor, SensorDocument};
+    use mongodb::bson::oid::ObjectId;
+    use mongodb::bson::{doc, Bson, DateTime};
+    use pretty_assertions::assert_eq;
+    use std::str::FromStr;
+
+    #[test]
+    fn call_document_to_json() {
+        let oid = ObjectId::from_str("63963ce7c7fd6d463c6c77a3").unwrap();
+        let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
+        let mac = "60:55:F9:DF:F8:92";
+        let manufacturer = "ks89";
+        let model = "dht-light";
+        let profile_owner_id = "620d710e4e8fe8f3394084bc";
+        let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
+        let date = DateTime::now();
+        let value = 10.2;
+        let sensor_doc = SensorDocument {
+            _id: oid,
+            uuid: uuid.to_string(),
+            mac: mac.to_string(),
+            manufacturer: manufacturer.to_string(),
+            model: model.to_string(),
+            profileOwnerId: profile_owner_id.to_string(),
+            apiToken: api_token.to_string(),
+            createdAt: date,
+            modifiedAt: date,
+            value: value as f32,
+        };
+        let sensor: Sensor = document_to_json(&sensor_doc);
+        assert_eq!(sensor._id, oid.to_string());
+        assert_eq!(sensor.uuid, uuid.to_string());
+        assert_eq!(sensor.mac, mac.to_string());
+        assert_eq!(sensor.manufacturer, manufacturer.to_string());
+        assert_eq!(sensor.model, model.to_string());
+        assert_eq!(sensor.profileOwnerId, profile_owner_id.to_string());
+        assert_eq!(sensor.apiToken, api_token.to_string());
+        assert_eq!(sensor.createdAt, date.to_string());
+        assert_eq!(sensor.modifiedAt, date.to_string());
+        assert_eq!(sensor.value, value);
     }
 }

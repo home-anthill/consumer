@@ -1,139 +1,43 @@
-use dotenvy::dotenv;
 use futures_lite::StreamExt;
+use lapin::message::Delivery;
 use log::{debug, error, info};
-use std::env;
+use mongodb::bson::Bson;
+use mongodb::Database;
 
 use consumer::amqp::{read_message, AmqpClient};
+use consumer::config::{init, Env};
 use consumer::db::connect;
-use consumer::db::sensor::update_message;
-use consumer::models::message::{GenericMessage, Message};
-use consumer::models::payload_trait::{
-    AirPressure, AirQuality, Humidity, Light, Motion, Temperature,
-};
-use consumer::models::{
-    new_airpressure_message, new_airquality_message, new_humidity_message, new_light_message,
-    new_motion_message, new_temperature_message,
-};
+use consumer::db::sensor::update_sensor;
+use consumer::errors::message_error::MessageError;
+use consumer::models::generic_message::GenericMessage;
+use consumer::models::sensor::Sensor;
 
 #[tokio::main]
 async fn main() {
-    // 1. Init logger
-    log4rs::init_file("log4rs.yaml", Default::default()).unwrap();
-    info!(target: "app", "Starting application...");
+    // 1. Init logger and env
+    let env: Env = init();
 
-    // 2. Load the .env file
-    dotenv().ok();
-
-    // 3. Print .env vars
-    let mongo_uri = env::var("MONGO_URI").expect("MONGO_URI is not found.");
-    let mongo_db_name = env::var("MONGO_DB_NAME").expect("MONGO_DB_NAME is not found.");
-    let amqp_uri = env::var("AMQP_URI").expect("AMQP_URI is not found.");
-    let amqp_queue_name = env::var("AMQP_QUEUE_NAME").expect("AMQP_QUEUE_NAME is not found.");
-    let amqp_consumer_tag = env::var("AMQP_CONSUMER_TAG").expect("AMQP_CONSUMER_TAG is not found.");
-    info!(target: "app", "MONGO_URI = {}", env::var("MONGO_URI").expect("MONGO_URI is not found."));
-    info!(target: "app", "MONGO_DB_NAME = {}", env::var("MONGO_DB_NAME").expect("MONGO_DB_NAME is not found."));
-    info!(target: "app", "AMQP_URI = {}", amqp_uri);
-    info!(target: "app", "AMQP_QUEUE_NAME = {}", amqp_queue_name);
-    info!(target: "app", "AMQP_CONSUMER_TAG = {}", amqp_consumer_tag);
-
-    // 4. Init MongoDB
-    let client = match connect(mongo_uri, mongo_db_name).await {
+    // 2. Init MongoDB
+    info!(target: "app", "Initializing MongoDB...");
+    let db_client: Database = match connect(&env).await {
         Ok(database) => database,
         Err(error) => {
             error!(target: "app", "MongoDB - cannot connect {:?}", error);
-            panic!("Cannot connect to MongoDB:: {:?}", error)
+            panic!("cannot connect to MongoDB:: {:?}", error)
         }
     };
 
-    // 5. Init RabbitMQ
+    // 3. Init RabbitMQ
+    info!(target: "app", "Initializing RabbitMQ...");
     let mut amqp_client: AmqpClient = AmqpClient::new(
-        amqp_uri.clone(),
-        amqp_queue_name.clone(),
-        amqp_consumer_tag.clone(),
+        env.amqp_uri.clone(),
+        env.amqp_queue_name.clone(),
+        env.amqp_consumer_tag.clone(),
     );
     amqp_client.connect_with_retry_loop().await;
     while let Some(delivery_res) = amqp_client.consumer.as_mut().unwrap().next().await {
         if let Ok(delivery) = delivery_res {
-            let payload_str: &str = read_message(&delivery).await;
-            // deserialize to a GenericMessage (with turbofish operator "::<GenericMessage>")
-            match serde_json::from_str::<GenericMessage>(payload_str) {
-                Ok(generic_msg) => {
-                    debug!(target: "app", "GenericMessage deserialized from JSON = {:?}", generic_msg);
-
-                    if generic_msg.topic.feature == "temperature" {
-                        let message: Message<Temperature> = new_temperature_message(generic_msg);
-                        debug!(target: "app", "message temperature {:?}", &message);
-                        match update_message(&client, &message).await {
-                            Ok(_register_doc_id) => {
-                                debug!(target: "app", "update success {:?}", _register_doc_id);
-                            }
-                            Err(_error) => {
-                                error!(target: "app", "{:?}", _error);
-                            }
-                        };
-                    } else if generic_msg.topic.feature == "humidity" {
-                        let message: Message<Humidity> = new_humidity_message(generic_msg);
-                        debug!(target: "app", "message humidity {:?}", &message);
-                        match update_message(&client, &message).await {
-                            Ok(_register_doc_id) => {
-                                debug!(target: "app", "update success");
-                            }
-                            Err(_error) => {
-                                error!(target: "app", "{:?}", _error);
-                            }
-                        }
-                    } else if generic_msg.topic.feature == "light" {
-                        let message: Message<Light> = new_light_message(generic_msg);
-                        debug!(target: "app", "message light {:?}", &message);
-                        match update_message(&client, &message).await {
-                            Ok(_register_doc_id) => {
-                                debug!(target: "app", "update success {:?}", _register_doc_id);
-                            }
-                            Err(_error) => {
-                                error!(target: "app", "{:?}", _error);
-                            }
-                        };
-                    } else if generic_msg.topic.feature == "motion" {
-                        let message: Message<Motion> = new_motion_message(generic_msg);
-                        debug!(target: "app", "message motion {:?}", &message);
-                        match update_message(&client, &message).await {
-                            Ok(_register_doc_id) => {
-                                debug!(target: "app", "update success {:?}", _register_doc_id);
-                            }
-                            Err(_error) => {
-                                error!(target: "app", "{:?}", _error);
-                            }
-                        };
-                    } else if generic_msg.topic.feature == "airquality" {
-                        let message: Message<AirQuality> = new_airquality_message(generic_msg);
-                        debug!(target: "app", "message airquality {:?}", &message);
-                        match update_message(&client, &message).await {
-                            Ok(_register_doc_id) => {
-                                debug!(target: "app", "update success {:?}", _register_doc_id);
-                            }
-                            Err(_error) => {
-                                error!(target: "app", "{:?}", _error);
-                            }
-                        };
-                    } else if generic_msg.topic.feature == "airpressure" {
-                        let message: Message<AirPressure> = new_airpressure_message(generic_msg);
-                        debug!(target: "app", "message airpressure {:?}", &message);
-                        match update_message(&client, &message).await {
-                            Ok(_register_doc_id) => {
-                                debug!(target: "app", "update success {:?}", _register_doc_id);
-                            }
-                            Err(_error) => {
-                                error!(target: "app", "{:?}", _error);
-                            }
-                        };
-                    } else {
-                        error!(target: "app", "Cannot recognize Message payload type");
-                    }
-                }
-                Err(err) => {
-                    error!(target: "app", "Cannot convert payload as json Message. Error = {:?}", err);
-                }
-            }
+            let _ = process_amqp_message(&delivery, &db_client).await;
         } else {
             error!(target: "app", "AMQP consumer - delivery_res error = {:?}", delivery_res.err());
             info!(target: "app", "AMQP reconnecting...");
@@ -141,3 +45,50 @@ async fn main() {
         }
     }
 }
+
+async fn process_amqp_message(delivery: &Delivery, db_client: &Database) -> Result<Option<Sensor>, MessageError> {
+    let payload_str: &str = read_message(delivery).await;
+    debug!(target: "app", "process_amqp_message - payload_str = {}", payload_str);
+    // deserialize to a GenericMessage (with turbofish operator "::<GenericMessage>")
+    match serde_json::from_str::<GenericMessage>(payload_str) {
+        Ok(generic_msg) => {
+            debug!(target: "app", "AMQP message received of type = {}", generic_msg.topic.feature);
+            debug!(target: "app", "AMQP message payload deserialized from JSON = {:?}", generic_msg);
+
+            let bson_value_opt: Option<Bson> = match generic_msg.topic.feature.as_str() {
+                // f32 sensors
+                "temperature" | "humidity" | "light" | "airpressure" => generic_msg.get_value_as_bson_f32(),
+                // i32 sensors
+                "motion" | "airquality" => generic_msg.get_value_as_bson_i32(),
+                _ => {
+                    error!(target: "app", "cannot recognize Message payload type = {}", generic_msg.topic.feature);
+                    None
+                }
+            };
+            debug!(target: "app", "bson_value_opt = {:?}", &bson_value_opt);
+            if let Some(bson_value) = bson_value_opt {
+                match update_sensor(db_client, &generic_msg, &bson_value).await {
+                    Ok(sensor) => {
+                        debug!(target: "app", "sensor db updated with result = {:?}", sensor);
+                        Ok(sensor)
+                    }
+                    Err(err) => {
+                        error!(target: "app", "cannot update sensor db, err = {:?}", err);
+                        Err(MessageError::UpdateDbError(err))
+                    }
+                }
+            } else {
+                error!(target: "app", "cannot update sensor, because bson_value_opt is None");
+                Err(MessageError::NoneValuePayloadError)
+            }
+        }
+        Err(err) => {
+            error!(target: "app", "Cannot convert payload as json Message. Error = {:?}", err);
+            Err(MessageError::MessageParsingError)
+        }
+    }
+}
+
+// testing
+#[cfg(test)]
+mod tests_integration;

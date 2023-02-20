@@ -31,3 +31,19 @@ impl fmt::Display for Topic {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::models::topic::Topic;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn check_topic_display() {
+        let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
+        let sensor_type = "temperature";
+
+        let topic: Topic = Topic::new(format!("sensors/{}/{}", uuid, sensor_type).as_str());
+        let expected = topic.to_string();
+        assert_eq!(format!("sensors/{}/{}", uuid, sensor_type), expected);
+    }
+}

@@ -18,25 +18,64 @@ pub struct GenericMessage {
 
 impl GenericMessage {
     pub fn get_value_as_bson_f32(&self) -> Option<Bson> {
-        let res_opt: Option<f64> = self.payload.get("value").and_then(|value| value.as_f64());
-        if res_opt.is_none() {
-            return None;
-        }
-        let value = res_opt.unwrap() as f32;
-        match to_bson::<f32>(&value) {
+        let value: f64 = self.payload.get("value").and_then(|value| value.as_f64())?;
+        match to_bson::<f32>(&(value as f32)) {
             Ok(val) => Some(val),
-            Err(err) => None,
+            Err(_) => None,
         }
     }
     pub fn get_value_as_bson_i32(&self) -> Option<Bson> {
-        let res_opt: Option<i64> = self.payload.get("value").and_then(|value| value.as_i64());
-        if res_opt.is_none() {
-            return None;
-        }
-        let value = res_opt.unwrap() as i32;
-        match to_bson::<i32>(&value) {
+        let value: i64 = self.payload.get("value").and_then(|value| value.as_i64())?;
+        match to_bson::<i32>(&(value as i32)) {
             Ok(val) => Some(val),
-            Err(err) => None,
+            Err(_) => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::models::generic_message::GenericMessage;
+    use crate::models::topic::Topic;
+    use mongodb::bson::to_bson;
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+
+    #[test]
+    fn ok_get_value_as_bson_f32() {
+        let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
+        let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
+        let sensor_type = "temperature";
+        let value: f64 = 21.0;
+
+        let topic: Topic = Topic::new(format!("sensors/{}/{}", uuid, sensor_type).as_str());
+        let generic_msg: GenericMessage = GenericMessage {
+            uuid: uuid.to_string(),
+            api_token: api_token.to_string(),
+            topic,
+            payload: json!({ "value": value }),
+        };
+        let result = generic_msg.get_value_as_bson_f32().unwrap();
+        let expected = to_bson::<f32>(&(value as f32)).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn ok_get_value_as_bson_i32() {
+        let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
+        let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
+        let sensor_type = "motion";
+        let value: i64 = 1;
+
+        let topic: Topic = Topic::new(format!("sensors/{}/{}", uuid, sensor_type).as_str());
+        let generic_msg: GenericMessage = GenericMessage {
+            uuid: uuid.to_string(),
+            api_token: api_token.to_string(),
+            topic,
+            payload: json!({ "value": value }),
+        };
+        let result = generic_msg.get_value_as_bson_i32().unwrap();
+        let expected = to_bson::<i32>(&(value as i32)).unwrap();
+        assert_eq!(result, expected);
     }
 }

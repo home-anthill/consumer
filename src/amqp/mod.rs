@@ -1,3 +1,4 @@
+use crate::errors::amqp_error::AmqpError;
 use lapin::{
     message::Delivery,
     options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions},
@@ -7,14 +8,6 @@ use lapin::{
 use log::{debug, error, info};
 use std::string::String;
 use std::time::Duration;
-use thiserror::Error;
-
-// custom error
-#[derive(Error, Debug)]
-pub enum AmqpError {
-    #[error("amqp_client not initialized error")]
-    Uninitialized(String),
-}
 
 pub struct AmqpClient {
     connecting: bool,
@@ -47,7 +40,7 @@ impl AmqpClient {
         self.connecting = true;
         self.create_connection().await;
         self.create_channel().await.unwrap();
-        self.create_queue().await.unwrap();
+        self.declare_queue().await.unwrap();
         self.create_consumer().await.unwrap();
         self.connecting = false;
         info!(target: "app", "connect_with_retry_loop - AMQP connection done!");
@@ -111,7 +104,7 @@ impl AmqpClient {
     }
 
     // private method that must be called after both create_connection() and create_channel()
-    async fn create_queue(&mut self) -> Result<(), AmqpError> {
+    async fn declare_queue(&mut self) -> Result<(), AmqpError> {
         info!(target: "app", "create_queue - creating AMQP queue...");
         // check if you are calling this method on an initialized amqp_client instance
         // (with both connection and channel, but not queue and consumer)
@@ -215,10 +208,7 @@ impl AmqpClient {
 }
 
 pub async fn read_message(delivery: &Delivery) -> &str {
-    delivery
-        .ack(BasicAckOptions::default())
-        .await
-        .expect("basic_ack");
+    delivery.ack(BasicAckOptions::default()).await.expect("basic_ack");
 
     let payload_str = match std::str::from_utf8(&delivery.data) {
         Ok(res) => {
@@ -231,4 +221,58 @@ pub async fn read_message(delivery: &Delivery) -> &str {
         }
     };
     payload_str
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::amqp::AmqpClient;
+    use crate::config::{init, Env};
+    use crate::errors::amqp_error::AmqpError;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn wrong_is_initialized() {
+        // init logger and env variables
+        let env: Env = init();
+        // create amqp_client without connecting it to the AMQP server
+        let amqp_client = AmqpClient::new(
+            env.amqp_uri.clone(),
+            env.amqp_queue_name.clone(),
+            env.amqp_consumer_tag.clone(),
+        );
+
+        // cover all possible errors returned by `is_initialized` method
+        let mut res = amqp_client.is_initialized(true, true, true, true);
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            anyhow::Error::from(AmqpError::Uninitialized(String::from(
+                "amqp_client connection not initialized. You must call AmqpClient::new()",
+            )))
+            .to_string()
+        );
+        res = amqp_client.is_initialized(false, true, true, true);
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            anyhow::Error::from(AmqpError::Uninitialized(String::from(
+                "amqp_client channel not initialized. You must call AmqpClient::new()",
+            )))
+            .to_string()
+        );
+        res = amqp_client.is_initialized(false, false, true, true);
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            anyhow::Error::from(AmqpError::Uninitialized(String::from(
+                "amqp_client queue not initialized. You must call AmqpClient::new()",
+            )))
+            .to_string()
+        );
+        res = amqp_client.is_initialized(false, false, false, true);
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            anyhow::Error::from(AmqpError::Uninitialized(String::from(
+                "amqp_client consumer not initialized. You must call AmqpClient::new()",
+            )))
+            .to_string()
+        );
+    }
 }
