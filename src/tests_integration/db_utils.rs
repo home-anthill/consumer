@@ -42,16 +42,6 @@ pub async fn drop_all_collections(db: &Database) {
         .expect("drop 'airquality' collection");
 }
 
-pub async fn find_sensor_by_uuid(
-    db: &Database,
-    uuid: &String,
-    sensor_type: &str,
-) -> mongodb::error::Result<Option<Document>> {
-    let collection = db.collection::<Document>(sensor_type);
-    let filter = doc! { "uuid": uuid };
-    collection.find_one(filter, None).await
-}
-
 pub async fn insert_sensor(db: &Database, input: RegisterInput, sensor_type: &str) -> Result<String, anyhow::Error> {
     let collection = db.collection::<Document>(sensor_type);
 

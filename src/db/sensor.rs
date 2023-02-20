@@ -66,7 +66,7 @@ mod tests {
     use crate::db::sensor::document_to_json;
     use crate::models::sensor::{Sensor, SensorDocument};
     use mongodb::bson::oid::ObjectId;
-    use mongodb::bson::{doc, Bson, DateTime};
+    use mongodb::bson::{DateTime};
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
 

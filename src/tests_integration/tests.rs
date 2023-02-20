@@ -80,7 +80,8 @@ async fn ok_receive_float_amqp_message() {
     let profile_owner_id = "63963ce7c7fd6d463c6c77a3";
     let manufacturer = "ks89";
     let model = "test-model";
-    let register_body: RegisterInput = create_register_input(&uuid, &mac, manufacturer, model, &api_token, profile_owner_id);
+    let register_body: RegisterInput =
+        create_register_input(&uuid, &mac, manufacturer, model, &api_token, profile_owner_id);
     let _ = insert_sensor(&db, register_body, sensor_type).await;
 
     // send an AMQP message to the server via `rabbitmqadmin` cli
@@ -152,7 +153,8 @@ async fn ok_receive_int_amqp_message() {
     let profile_owner_id = "63963ce7c7fd6d463c6c77a3";
     let manufacturer = "ks89";
     let model = "test-model";
-    let register_body: RegisterInput = create_register_input(&uuid, &mac, manufacturer, model, &api_token, profile_owner_id);
+    let register_body: RegisterInput =
+        create_register_input(&uuid, &mac, manufacturer, model, &api_token, profile_owner_id);
     let _ = insert_sensor(&db, register_body, sensor_type).await;
 
     // send an AMQP message to the server via `rabbitmqadmin` cli
@@ -260,10 +262,6 @@ async fn bad_payload_receive_amqp_message() {
     amqp_client.connect_with_retry_loop().await;
 
     // create AMQP message payload
-    let uuid: String = Uuid::new_v4().to_string();
-    let api_token: String = Uuid::new_v4().to_string();
-    let sensor_type = "motion";
-    let value = 1;
     let json_val = json!({
         "bad_json_payload": "bla bla"
     });

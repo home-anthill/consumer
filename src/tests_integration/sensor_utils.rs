@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use mongodb::bson::oid::ObjectId;
 use mongodb::bson::{oid, to_bson, Bson, DateTime};
 use oid::Error;

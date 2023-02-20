@@ -19,25 +19,6 @@ pub fn create_register_input(
     }
 }
 
-pub fn build_register_input(
-    sensor_uuid: &str,
-    mac: &str,
-    manufacturer: &str,
-    model: &str,
-    api_token: &str,
-    profile_owner_id: &str,
-) -> String {
-    serde_json::to_string(&create_register_input(
-        sensor_uuid,
-        mac,
-        manufacturer,
-        model,
-        api_token,
-        profile_owner_id,
-    ))
-    .unwrap()
-}
-
 pub fn get_random_mac() -> String {
     const CHARSET: &[u8] = b"ABCDEF0123456789";
     let mut rng = rand::thread_rng();
