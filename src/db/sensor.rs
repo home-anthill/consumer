@@ -66,7 +66,7 @@ mod tests {
     use crate::db::sensor::document_to_json;
     use crate::models::sensor::{Sensor, SensorDocument};
     use mongodb::bson::oid::ObjectId;
-    use mongodb::bson::{DateTime};
+    use mongodb::bson::DateTime;
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
 
@@ -77,7 +77,7 @@ mod tests {
         let mac = "60:55:F9:DF:F8:92";
         let manufacturer = "ks89";
         let model = "dht-light";
-        let profile_owner_id = "620d710e4e8fe8f3394084bc";
+        let profile_owner_id = ObjectId::from_str("620d710e4e8fe8f3394084bc").unwrap();
         let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
         let date = DateTime::now();
         let value = 10.2;
@@ -87,7 +87,7 @@ mod tests {
             mac: mac.to_string(),
             manufacturer: manufacturer.to_string(),
             model: model.to_string(),
-            profileOwnerId: profile_owner_id.to_string(),
+            profileOwnerId: profile_owner_id,
             apiToken: api_token.to_string(),
             createdAt: date,
             modifiedAt: date,

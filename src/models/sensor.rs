@@ -10,7 +10,7 @@ pub struct SensorDocument {
     pub mac: String,
     pub manufacturer: String,
     pub model: String,
-    pub profileOwnerId: String,
+    pub profileOwnerId: ObjectId,
     pub apiToken: String,
     pub createdAt: DateTime,
     pub modifiedAt: DateTime,
