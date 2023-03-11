@@ -22,9 +22,11 @@ pub async fn update_sensor(
         .return_document(ReturnDocument::After)
         .build();
 
+    let uuid: String = generic_msg.uuid.clone();
+    let api_token: String = generic_msg.api_token.clone();
     let sensor_doc = collection
         .find_one_and_update(
-            doc! { "uuid": generic_msg.uuid.clone(), "apiToken": generic_msg.api_token.clone() },
+            doc! { "uuid": uuid, "apiToken": api_token },
             doc! { "$set": {
                     "value": value,
                     "modifiedAt": DateTime::now()
@@ -80,7 +82,7 @@ mod tests {
         let profile_owner_id = ObjectId::from_str("620d710e4e8fe8f3394084bc").unwrap();
         let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
         let date = DateTime::now();
-        let value = 10.2;
+        let value: f64 = 10.2;
         let sensor_doc = SensorDocument {
             _id: oid,
             uuid: uuid.to_string(),
@@ -91,7 +93,7 @@ mod tests {
             apiToken: api_token.to_string(),
             createdAt: date,
             modifiedAt: date,
-            value: value as f32,
+            value,
         };
         let sensor: Sensor = document_to_json(&sensor_doc);
         assert_eq!(sensor._id, oid.to_string());

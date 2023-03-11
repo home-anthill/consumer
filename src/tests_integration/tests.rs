@@ -132,7 +132,7 @@ async fn ok_receive_int_amqp_message() {
     let uuid: String = Uuid::new_v4().to_string();
     let api_token: String = Uuid::new_v4().to_string();
     let sensor_type = "motion";
-    let value = 1;
+    let value: i64 = 1;
     let json_val = json!({
         "uuid": uuid,
         "apiToken": api_token,
@@ -172,7 +172,7 @@ async fn ok_receive_int_amqp_message() {
     assert_eq!(sensor.model, model);
     assert_eq!(sensor.profileOwnerId, profile_owner_id);
     assert_eq!(sensor.apiToken, api_token);
-    assert_eq!(sensor.value as i32, value);
+    assert_eq!(sensor.value as i64, value);
 
     // cleanup
     drop_all_collections(&db).await;
@@ -205,7 +205,7 @@ async fn missing_sensor_receive_amqp_message() {
     let uuid: String = Uuid::new_v4().to_string();
     let api_token: String = Uuid::new_v4().to_string();
     let sensor_type = "unknowntype";
-    let value = 1;
+    let value: f64 = 1.0;
     let json_val = json!({
         "uuid": uuid,
         "apiToken": api_token,

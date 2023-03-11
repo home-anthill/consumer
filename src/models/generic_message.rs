@@ -17,16 +17,16 @@ pub struct GenericMessage {
 }
 
 impl GenericMessage {
-    pub fn get_value_as_bson_f32(&self) -> Option<Bson> {
+    pub fn get_value_as_bson_f64(&self) -> Option<Bson> {
         let value: f64 = self.payload.get("value").and_then(|value| value.as_f64())?;
-        match to_bson::<f32>(&(value as f32)) {
+        match to_bson::<f64>(&value) {
             Ok(val) => Some(val),
             Err(_) => None,
         }
     }
-    pub fn get_value_as_bson_i32(&self) -> Option<Bson> {
+    pub fn get_value_as_bson_i64(&self) -> Option<Bson> {
         let value: i64 = self.payload.get("value").and_then(|value| value.as_i64())?;
-        match to_bson::<i32>(&(value as i32)) {
+        match to_bson::<i64>(&value) {
             Ok(val) => Some(val),
             Err(_) => None,
         }
@@ -42,7 +42,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn ok_get_value_as_bson_f32() {
+    fn ok_get_value_as_bson_f64() {
         let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
         let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
         let sensor_type = "temperature";
@@ -55,13 +55,13 @@ mod tests {
             topic,
             payload: json!({ "value": value }),
         };
-        let result = generic_msg.get_value_as_bson_f32().unwrap();
-        let expected = to_bson::<f32>(&(value as f32)).unwrap();
+        let result = generic_msg.get_value_as_bson_f64().unwrap();
+        let expected = to_bson::<f64>(&value).unwrap();
         assert_eq!(result, expected);
     }
 
     #[test]
-    fn ok_get_value_as_bson_i32() {
+    fn ok_get_value_as_bson_i64() {
         let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
         let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
         let sensor_type = "motion";
@@ -74,8 +74,8 @@ mod tests {
             topic,
             payload: json!({ "value": value }),
         };
-        let result = generic_msg.get_value_as_bson_i32().unwrap();
-        let expected = to_bson::<i32>(&(value as i32)).unwrap();
+        let result = generic_msg.get_value_as_bson_i64().unwrap();
+        let expected = to_bson::<i64>(&value).unwrap();
         assert_eq!(result, expected);
     }
 }

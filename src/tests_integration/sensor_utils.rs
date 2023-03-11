@@ -94,7 +94,7 @@ impl IntSensor {
             apiToken: api_token,
             createdAt: date_now,
             modifiedAt: date_now,
-            value: 0,
+            value: 0_i64,
         }
     }
 }
@@ -119,7 +119,7 @@ impl FloatSensor {
             apiToken: api_token,
             createdAt: date_now,
             modifiedAt: date_now,
-            value: 0.0,
+            value: 0.0_f64,
         }
     }
 }

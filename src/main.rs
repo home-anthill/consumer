@@ -56,10 +56,10 @@ async fn process_amqp_message(delivery: &Delivery, db_client: &Database) -> Resu
             debug!(target: "app", "AMQP message payload deserialized from JSON = {:?}", generic_msg);
 
             let bson_value_opt: Option<Bson> = match generic_msg.topic.feature.as_str() {
-                // f32 sensors
-                "temperature" | "humidity" | "light" | "airpressure" => generic_msg.get_value_as_bson_f32(),
-                // i32 sensors
-                "motion" | "airquality" => generic_msg.get_value_as_bson_i32(),
+                // f64 sensors
+                "temperature" | "humidity" | "light" | "airpressure" => generic_msg.get_value_as_bson_f64(),
+                // i64 sensors
+                "motion" | "airquality" => generic_msg.get_value_as_bson_i64(),
                 _ => {
                     error!(target: "app", "cannot recognize Message payload type = {}", generic_msg.topic.feature);
                     None
