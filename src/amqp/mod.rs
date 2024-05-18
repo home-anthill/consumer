@@ -85,9 +85,11 @@ impl AmqpClient {
         info!(target: "app", "create_channel - creating AMQP channel...");
         // check if you are calling this method on an initialized amqp_client instance (with ONLY connection)
         let init_result: Result<(), AmqpError> = self.is_initialized(true, false, false, false);
-        if init_result.is_err() {
-            return Err(init_result.unwrap_err());
-        }
+        // if initialization fails, return the error
+        // I'm using the '?' operator as https://rust-lang.github.io/rust-clippy/master/index.html#/question_mark
+        // instead of the verbose syntax
+        // if let Err(err) = init_result { return Err(err); }
+        init_result?;
         self.channel = loop {
             match self.connection.as_ref().unwrap().create_channel().await {
                 Ok(channel) => {
@@ -109,9 +111,11 @@ impl AmqpClient {
         // check if you are calling this method on an initialized amqp_client instance
         // (with both connection and channel, but not queue and consumer)
         let init_result: Result<(), AmqpError> = self.is_initialized(true, true, false, false);
-        if init_result.is_err() {
-            return Err(init_result.unwrap_err());
-        }
+        // if initialization fails, return the error
+        // I'm using the '?' operator as https://rust-lang.github.io/rust-clippy/master/index.html#/question_mark
+        // instead of the verbose syntax
+        // if let Err(err) = init_result { return Err(err); }
+        init_result?;
         self.queue = loop {
             match self
                 .channel
@@ -143,9 +147,11 @@ impl AmqpClient {
         // check if you are calling this method on an initialized amqp_client instance
         // (with both connection, channel and queue, but not consumer)
         let init_result: Result<(), AmqpError> = self.is_initialized(true, true, true, false);
-        if init_result.is_err() {
-            return Err(init_result.unwrap_err());
-        }
+        // if initialization fails, return the error
+        // I'm using the '?' operator as https://rust-lang.github.io/rust-clippy/master/index.html#/question_mark
+        // instead of the verbose syntax
+        // if let Err(err) = init_result { return Err(err); }
+        init_result?;
         self.consumer = loop {
             match self
                 .channel
