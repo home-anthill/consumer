@@ -17,27 +17,27 @@ pub struct RegisterInput {
 
 pub async fn drop_all_collections(db: &Database) {
     db.collection::<Document>("temperature")
-        .drop(None)
+        .drop()
         .await
         .expect("drop 'temperature' collection");
     db.collection::<Document>("humidity")
-        .drop(None)
+        .drop()
         .await
         .expect("drop 'humidity' collection");
     db.collection::<Document>("light")
-        .drop(None)
+        .drop()
         .await
         .expect("drop 'light' collection");
     db.collection::<Document>("motion")
-        .drop(None)
+        .drop()
         .await
         .expect("drop 'motion' collection");
     db.collection::<Document>("airpressure")
-        .drop(None)
+        .drop()
         .await
         .expect("drop 'airpressure' collection");
     db.collection::<Document>("airquality")
-        .drop(None)
+        .drop()
         .await
         .expect("drop 'airquality' collection");
 }
@@ -46,13 +46,13 @@ pub async fn insert_sensor(db: &Database, input: RegisterInput, sensor_type: &st
     let collection = db.collection::<Document>(sensor_type);
 
     let serialized_data: Bson = match sensor_type {
-        "temperature" | "humidity" | "light" => new_from_register_input::<FloatSensor>(input).unwrap(),
-        "motion" | "airquality" | "airpressure" => new_from_register_input::<IntSensor>(input).unwrap(),
+        "temperature" | "humidity" | "light" => new_from_register_input::<FloatSensor>(input)?,
+        "motion" | "airquality" | "airpressure" => new_from_register_input::<IntSensor>(input)?,
         _ => {
             panic!("Unknown type")
         }
     };
     let document = serialized_data.as_document().unwrap();
-    let insert_one_result = collection.insert_one(document.to_owned(), None).await.unwrap();
+    let insert_one_result = collection.insert_one(document.to_owned()).await?;
     Ok(insert_one_result.inserted_id.as_object_id().unwrap().to_hex())
 }

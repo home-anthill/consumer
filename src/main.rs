@@ -19,13 +19,10 @@ async fn main() {
 
     // 2. Init MongoDB
     info!(target: "app", "Initializing MongoDB...");
-    let db_client: Database = match connect(&env).await {
-        Ok(database) => database,
-        Err(error) => {
-            error!(target: "app", "MongoDB - cannot connect {:?}", error);
-            panic!("cannot connect to MongoDB:: {:?}", error)
-        }
-    };
+    let db_client: Database = connect(&env).await.unwrap_or_else(|error| {
+        error!(target: "app", "MongoDB - cannot connect {:?}", error);
+        panic!("cannot connect to MongoDB:: {:?}", error)
+    });
 
     // 3. Init RabbitMQ
     info!(target: "app", "Initializing RabbitMQ...");

@@ -2,7 +2,6 @@ use log::{error, info};
 
 use crate::models::generic_message::GenericMessage;
 use mongodb::bson::{doc, Bson, DateTime};
-use mongodb::options::FindOneAndUpdateOptions;
 use mongodb::options::ReturnDocument;
 use mongodb::Database;
 
@@ -18,10 +17,6 @@ pub async fn update_sensor(
 
     let collection = db.collection::<SensorDocument>(&generic_msg.topic.feature);
 
-    let find_one_and_update_options = FindOneAndUpdateOptions::builder()
-        .return_document(ReturnDocument::After)
-        .build();
-
     let uuid: String = generic_msg.uuid.clone();
     let api_token: String = generic_msg.api_token.clone();
     let sensor_doc = collection
@@ -32,8 +27,9 @@ pub async fn update_sensor(
                     "modifiedAt": DateTime::now()
                 }
             },
-            find_one_and_update_options,
+            // find_one_and_update_options,
         )
+        .return_document(ReturnDocument::After)
         .await
         .unwrap(); // TODO ATTENTION I should check and return a custom DbError here Err(....) and not unwrap and ignore the error.
 
