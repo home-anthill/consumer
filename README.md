@@ -21,6 +21,7 @@ GitHub releases [HERE](https://github.com/home-anthill/consumer/releases)
 
 Versions:
 
+- 01/09/2024 - 1.2.0
 - 20/08/2024 - 1.1.0
 - 19/05/2024 - 1.0.1
 - 19/05/2024 - 1.0.0

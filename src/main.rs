@@ -19,7 +19,7 @@ async fn main() {
 
     // 2. Init MongoDB
     info!(target: "app", "Initializing MongoDB...");
-    let db_client: Database = connect(&env).await.unwrap_or_else(|error| {
+    let database: Database = connect(&env).await.unwrap_or_else(|error| {
         error!(target: "app", "MongoDB - cannot connect {:?}", error);
         panic!("cannot connect to MongoDB:: {:?}", error)
     });
@@ -34,7 +34,7 @@ async fn main() {
     amqp_client.connect_with_retry_loop().await;
     while let Some(delivery_res) = amqp_client.consumer.as_mut().unwrap().next().await {
         if let Ok(delivery) = delivery_res {
-            let _ = process_amqp_message(&delivery, &db_client).await;
+            let _ = process_amqp_message(&delivery, &database).await;
         } else {
             error!(target: "app", "AMQP consumer - delivery_res error = {:?}", delivery_res.err());
             info!(target: "app", "AMQP reconnecting...");
@@ -43,7 +43,7 @@ async fn main() {
     }
 }
 
-async fn process_amqp_message(delivery: &Delivery, db_client: &Database) -> Result<Option<Sensor>, MessageError> {
+async fn process_amqp_message(delivery: &Delivery, database: &Database) -> Result<Option<Sensor>, MessageError> {
     let payload_str: &str = read_message(delivery).await;
     debug!(target: "app", "process_amqp_message - payload_str = {}", payload_str);
     // deserialize to a GenericMessage (with turbofish operator "::<GenericMessage>")
@@ -56,7 +56,7 @@ async fn process_amqp_message(delivery: &Delivery, db_client: &Database) -> Resu
                 // f64 sensors
                 "temperature" | "humidity" | "light" | "airpressure" => generic_msg.get_value_as_bson_f64(),
                 // i64 sensors
-                "motion" | "airquality" => generic_msg.get_value_as_bson_i64(),
+                "motion" | "airquality" | "poweroutage" => generic_msg.get_value_as_bson_i64(),
                 _ => {
                     error!(target: "app", "cannot recognize Message payload type = {}", generic_msg.topic.feature);
                     None
@@ -64,7 +64,7 @@ async fn process_amqp_message(delivery: &Delivery, db_client: &Database) -> Resu
             };
             debug!(target: "app", "bson_value_opt = {:?}", &bson_value_opt);
             if let Some(bson_value) = bson_value_opt {
-                match update_sensor(db_client, &generic_msg, &bson_value).await {
+                match update_sensor(database, &generic_msg, &bson_value).await {
                     Ok(sensor) => {
                         debug!(target: "app", "sensor db updated with result = {:?}", sensor);
                         Ok(sensor)

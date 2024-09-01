@@ -27,7 +27,6 @@ pub async fn update_sensor(
                     "modifiedAt": DateTime::now()
                 }
             },
-            // find_one_and_update_options,
         )
         .return_document(ReturnDocument::After)
         .await
