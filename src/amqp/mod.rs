@@ -1,9 +1,9 @@
 use crate::errors::amqp_error::AmqpError;
 use lapin::{
+    Channel, Connection, ConnectionProperties, Consumer, Queue,
     message::Delivery,
     options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions},
     types::FieldTable,
-    Channel, Connection, ConnectionProperties, Consumer, Queue,
 };
 use log::{debug, error, info};
 use std::string::String;
@@ -232,7 +232,7 @@ pub async fn read_message(delivery: &Delivery) -> &str {
 #[cfg(test)]
 mod tests {
     use crate::amqp::AmqpClient;
-    use crate::config::{init, Env};
+    use crate::config::{Env, init};
     use crate::errors::amqp_error::AmqpError;
     use pretty_assertions::assert_eq;
 

@@ -1,4 +1,4 @@
-use mongodb::bson::{to_bson, Bson};
+use mongodb::bson::{Bson, to_bson};
 use serde::Deserialize;
 use serde_json::Value;
 

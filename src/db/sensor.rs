@@ -1,9 +1,9 @@
 use log::{error, info};
 
 use crate::models::generic_message::GenericMessage;
-use mongodb::bson::{doc, Bson, DateTime};
-use mongodb::options::ReturnDocument;
 use mongodb::Database;
+use mongodb::bson::{Bson, DateTime, doc};
+use mongodb::options::ReturnDocument;
 
 use crate::models::sensor::Sensor;
 use crate::models::sensor::SensorDocument;
@@ -62,8 +62,8 @@ fn document_to_json(sensor_doc: &SensorDocument) -> Sensor {
 mod tests {
     use crate::db::sensor::document_to_json;
     use crate::models::sensor::{Sensor, SensorDocument};
-    use mongodb::bson::oid::ObjectId;
     use mongodb::bson::DateTime;
+    use mongodb::bson::oid::ObjectId;
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
 

@@ -1,11 +1,11 @@
 use futures_lite::StreamExt;
 use lapin::message::Delivery;
 use log::{debug, error, info};
-use mongodb::bson::Bson;
 use mongodb::Database;
+use mongodb::bson::Bson;
 
-use consumer::amqp::{read_message, AmqpClient};
-use consumer::config::{init, Env};
+use consumer::amqp::{AmqpClient, read_message};
+use consumer::config::{Env, init};
 use consumer::db::connect;
 use consumer::db::sensor::update_sensor;
 use consumer::errors::message_error::MessageError;

@@ -1,8 +1,8 @@
-use mongodb::bson::{doc, Bson, Document};
 use mongodb::Database;
+use mongodb::bson::{Bson, Document, doc};
 use serde::{Deserialize, Serialize};
 
-use crate::tests_integration::sensor_utils::{new_from_register_input, FloatSensor, IntSensor};
+use crate::tests_integration::sensor_utils::{FloatSensor, IntSensor, new_from_register_input};
 
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -1,5 +1,5 @@
 use mongodb::bson::oid::ObjectId;
-use mongodb::bson::{oid, to_bson, Bson, DateTime};
+use mongodb::bson::{Bson, DateTime, oid, to_bson};
 use oid::Error;
 use serde::{Deserialize, Serialize};
 

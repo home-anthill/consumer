@@ -7,12 +7,12 @@ use std::process::Command;
 use uuid::Uuid;
 
 use consumer::amqp::AmqpClient;
-use consumer::config::{init, Env};
+use consumer::config::{Env, init};
 use consumer::db::connect;
 use consumer::errors::message_error::MessageError;
 
 use crate::process_amqp_message;
-use crate::tests_integration::db_utils::{drop_all_collections, insert_sensor, RegisterInput};
+use crate::tests_integration::db_utils::{RegisterInput, drop_all_collections, insert_sensor};
 use crate::tests_integration::test_utils::{create_register_input, get_random_mac};
 
 fn run_rabbitmqadmin_cli(payload: &str) {
