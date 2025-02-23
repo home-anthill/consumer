@@ -61,9 +61,7 @@ impl AmqpClient {
     async fn create_connection(&mut self) {
         info!(target: "app", "create_connection - creating AMQP connection...");
         self.connection = loop {
-            let options = ConnectionProperties::default()
-                .with_executor(tokio_executor_trait::Tokio::current())
-                .with_reactor(tokio_reactor_trait::Tokio);
+            let options = ConnectionProperties::default().with_executor(tokio_executor_trait::Tokio::current());
             match Connection::connect(&self.amqp_uri, options).await {
                 Ok(connection) => {
                     info!(target: "app", "create_connection - AMQP connection established");
