@@ -13,7 +13,7 @@ pub async fn update_sensor(
     generic_msg: &GenericMessage,
     value: &Bson,
 ) -> mongodb::error::Result<Option<Sensor>> {
-    info!(target: "app", "update_sensor - Called with generic_msg = {}", generic_msg);
+    info!(target: "app", "update_sensor - Called with generic_msg = {:?}", generic_msg);
 
     let collection = db.collection::<SensorDocument>(&generic_msg.topic.feature);
 
