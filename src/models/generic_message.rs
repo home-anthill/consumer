@@ -19,17 +19,11 @@ pub struct GenericMessage {
 impl GenericMessage {
     pub fn get_value_as_bson_f64(&self) -> Option<Bson> {
         let value: f64 = self.payload.get("value").and_then(|value| value.as_f64())?;
-        match to_bson::<f64>(&value) {
-            Ok(val) => Some(val),
-            Err(_) => None,
-        }
+        to_bson::<f64>(&value).ok()
     }
     pub fn get_value_as_bson_i64(&self) -> Option<Bson> {
         let value: i64 = self.payload.get("value").and_then(|value| value.as_i64())?;
-        match to_bson::<i64>(&value) {
-            Ok(val) => Some(val),
-            Err(_) => None,
-        }
+        to_bson::<i64>(&value).ok()
     }
 }
 
