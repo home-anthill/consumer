@@ -1,5 +1,6 @@
-use crate::tests_integration::db_utils::RegisterInput;
 use rand::prelude::*;
+
+use crate::tests_integration::db_utils::RegisterInput;
 
 pub fn create_register_input(
     sensor_uuid: &str,

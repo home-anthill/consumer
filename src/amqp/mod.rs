@@ -1,13 +1,15 @@
-use crate::errors::amqp_error::AmqpError;
+use std::string::String;
+use std::time::Duration;
+
 use lapin::{
     Channel, Connection, ConnectionProperties, Consumer, Queue,
     message::Delivery,
     options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions},
     types::FieldTable,
 };
-use log::{debug, error, info};
-use std::string::String;
-use std::time::Duration;
+use tracing::{debug, error, info};
+
+use crate::errors::amqp_error::AmqpError;
 
 pub struct AmqpClient {
     connecting: bool,

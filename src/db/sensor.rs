@@ -1,10 +1,10 @@
-use log::{error, info};
+use tracing::{error, info};
 
-use crate::models::generic_message::GenericMessage;
 use mongodb::Database;
 use mongodb::bson::{Bson, DateTime, doc};
 use mongodb::options::ReturnDocument;
 
+use crate::models::generic_message::GenericMessage;
 use crate::models::sensor::Sensor;
 use crate::models::sensor::SensorDocument;
 

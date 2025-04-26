@@ -1,9 +1,9 @@
 use futures_lite::StreamExt;
-use log::{debug, error};
 use mongodb::Database;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::process::Command;
+use tracing::{debug, error};
 use uuid::Uuid;
 
 use consumer::amqp::AmqpClient;
