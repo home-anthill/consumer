@@ -2,7 +2,7 @@ use std::string::String;
 use std::time::Duration;
 
 use lapin::{
-    Channel, Connection, ConnectionProperties, Consumer, Queue,
+    Channel, Connection, ConnectionProperties, Consumer, Queue, RecoveryConfig,
     message::Delivery,
     options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions},
     types::FieldTable,
@@ -63,7 +63,9 @@ impl AmqpClient {
     async fn create_connection(&mut self) {
         info!(target: "app", "create_connection - creating AMQP connection...");
         self.connection = loop {
-            let options = ConnectionProperties::default().with_executor(tokio_executor_trait::Tokio::current());
+            let options = ConnectionProperties::default()
+                .with_experimental_recovery_config(RecoveryConfig::full())
+                .with_executor(tokio_executor_trait::Tokio::current());
             match Connection::connect(&self.amqp_uri, options).await {
                 Ok(connection) => {
                     info!(target: "app", "create_connection - AMQP connection established");
