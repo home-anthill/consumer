@@ -2,7 +2,7 @@ use std::string::String;
 use std::time::Duration;
 
 use lapin::{
-    Channel, Connection, ConnectionProperties, Consumer, Queue, RecoveryConfig,
+    Channel, Connection, ConnectionProperties, Consumer, Error, Queue, RecoveryConfig,
     message::Delivery,
     options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions},
     types::FieldTable,
@@ -80,6 +80,10 @@ impl AmqpClient {
         self.connection.as_ref().unwrap().on_error(|err| {
             error!(target: "app", "amqp_connect - AMQP connection error = {:?}", err);
         });
+    }
+
+    pub async fn close_connection(&mut self) -> Result<(), Error> {
+        self.connection.as_ref().unwrap().close(0, "".as_ref()).await
     }
 
     // private method that must be called after create_connection()
@@ -239,6 +243,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
+    #[test_log::test]
     fn wrong_is_initialized() {
         // init logger and env variables
         let env: Env = init();

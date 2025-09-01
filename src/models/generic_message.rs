@@ -36,6 +36,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    #[test_log::test]
     fn ok_get_value_as_bson_f64() {
         let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
         let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
@@ -55,6 +56,7 @@ mod tests {
     }
 
     #[test]
+    #[test_log::test]
     fn ok_get_value_as_bson_i64() {
         let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
         let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";

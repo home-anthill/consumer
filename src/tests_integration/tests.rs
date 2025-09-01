@@ -3,7 +3,9 @@ use mongodb::Database;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::process::Command;
-use tracing::{debug, error};
+use std::time::Duration;
+use tokio::time::sleep;
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use consumer::amqp::AmqpClient;
@@ -16,7 +18,7 @@ use crate::tests_integration::db_utils::{RegisterInput, drop_all_collections, in
 use crate::tests_integration::test_utils::{create_register_input, get_random_mac};
 
 fn run_rabbitmqadmin_cli(payload: &str) {
-    Command::new("/usr/local/sbin/rabbitmqadmin")
+    Command::new("rabbitmqadmin")
         .arg("-P")
         .arg("15672")
         .arg("-u")
@@ -24,16 +26,43 @@ fn run_rabbitmqadmin_cli(payload: &str) {
         .arg("-p")
         .arg("guest")
         .arg("publish")
-        .arg("exchange=amq.default")
-        .arg("routing_key=ks89")
-        .arg("payload=".to_owned() + payload)
-        // .arg(r#"properties={"delivery_mode":1}"#)
+        .arg("message")
+        .arg("-k")
+        .arg("ks89")
+        .arg("-e")
+        .arg("amq.default")
+        .arg("-m")
+        .arg(payload)
         .spawn()
-        .expect("command failed to start");
+        .unwrap()
+        .wait()
+        .expect("publish command failed to start");
+}
+
+fn purge_queue_rabbitmqadmin_cli() {
+    Command::new("rabbitmqadmin")
+        .arg("-P")
+        .arg("15672")
+        .arg("-u")
+        .arg("guest")
+        .arg("-p")
+        .arg("guest")
+        .arg("purge")
+        .arg("queue")
+        .arg("--name")
+        .arg("ks89")
+        .spawn()
+        .unwrap()
+        .wait()
+        .expect("purge command failed to start");
 }
 
 #[tokio::test]
+#[test_log::test]
 async fn ok_receive_float_amqp_message() {
+    purge_queue_rabbitmqadmin_cli();
+    sleep(Duration::from_millis(1000)).await;
+
     // init logger and env variables
     let env: Env = init();
 
@@ -85,8 +114,12 @@ async fn ok_receive_float_amqp_message() {
     let _ = insert_sensor(&db, register_body, sensor_type).await;
 
     // send an AMQP message to the server via `rabbitmqadmin` cli
-    run_rabbitmqadmin_cli(json_str.as_str());
-
+    tokio::spawn(async move {
+        info!(target: "app", "waiting 2s before running cli command...");
+        sleep(Duration::from_millis(2000)).await;
+        // send an AMQP message to the server via `rabbitmqadmin` cli
+        run_rabbitmqadmin_cli(json_str.as_str());
+    });
     // read and process AMQP message
     let delivery = amqp_client.consumer.as_mut().unwrap().next().await.unwrap().unwrap();
     let result = process_amqp_message(&delivery, &db).await;
@@ -103,10 +136,17 @@ async fn ok_receive_float_amqp_message() {
 
     // cleanup
     drop_all_collections(&db).await;
+    purge_queue_rabbitmqadmin_cli();
+    sleep(Duration::from_millis(1000)).await;
+    amqp_client.close_connection().await.expect("cannot close connection");
 }
 
 #[tokio::test]
+#[test_log::test]
 async fn ok_receive_int_amqp_message() {
+    purge_queue_rabbitmqadmin_cli();
+    sleep(Duration::from_millis(1000)).await;
+
     // init logger and env variables
     let env: Env = init();
 
@@ -146,7 +186,7 @@ async fn ok_receive_int_amqp_message() {
         }
     });
     let json_str = serde_json::to_string(&json_val).unwrap();
-    debug!(target: "app", "json_str = {}", json_str);
+    info!(target: "app", "json_str = {}", json_str);
 
     // register a sensor, otherwise it won't be possible to update it's value
     let mac: String = get_random_mac();
@@ -155,10 +195,15 @@ async fn ok_receive_int_amqp_message() {
     let model = "test-model";
     let register_body: RegisterInput =
         create_register_input(&uuid, &mac, manufacturer, model, &api_token, profile_owner_id);
+    info!(target: "app", "inserting sensor");
     let _ = insert_sensor(&db, register_body, sensor_type).await;
 
-    // send an AMQP message to the server via `rabbitmqadmin` cli
-    run_rabbitmqadmin_cli(json_str.as_str());
+    tokio::spawn(async move {
+        info!(target: "app", "waiting 2s before running cli command...");
+        sleep(Duration::from_millis(2000)).await;
+        // send an AMQP message to the server via `rabbitmqadmin` cli
+        run_rabbitmqadmin_cli(json_str.as_str());
+    });
 
     // read and process AMQP message
     let delivery = amqp_client.consumer.as_mut().unwrap().next().await.unwrap().unwrap();
@@ -176,10 +221,17 @@ async fn ok_receive_int_amqp_message() {
 
     // cleanup
     drop_all_collections(&db).await;
+    purge_queue_rabbitmqadmin_cli();
+    sleep(Duration::from_millis(1000)).await;
+    amqp_client.close_connection().await.expect("cannot close connection");
 }
 
 #[tokio::test]
+#[test_log::test]
 async fn missing_sensor_receive_amqp_message() {
+    purge_queue_rabbitmqadmin_cli();
+    sleep(Duration::from_millis(1000)).await;
+
     // init logger and env variables
     let env: Env = init();
 
@@ -221,8 +273,12 @@ async fn missing_sensor_receive_amqp_message() {
     let json_str = serde_json::to_string(&json_val).unwrap();
     debug!(target: "app", "json_str = {}", json_str);
 
-    // send an AMQP message to the server via `rabbitmqadmin` cli
-    run_rabbitmqadmin_cli(json_str.as_str());
+    tokio::spawn(async move {
+        info!(target: "app", "waiting 2s before running cli command...");
+        sleep(Duration::from_millis(2000)).await;
+        // send an AMQP message to the server via `rabbitmqadmin` cli
+        run_rabbitmqadmin_cli(json_str.as_str());
+    });
 
     // read and process AMQP message
     let delivery = amqp_client.consumer.as_mut().unwrap().next().await.unwrap().unwrap();
@@ -236,10 +292,17 @@ async fn missing_sensor_receive_amqp_message() {
 
     // cleanup
     drop_all_collections(&db).await;
+    purge_queue_rabbitmqadmin_cli();
+    sleep(Duration::from_millis(1000)).await;
+    amqp_client.close_connection().await.expect("cannot close connection");
 }
 
 #[tokio::test]
+#[test_log::test]
 async fn bad_payload_receive_amqp_message() {
+    purge_queue_rabbitmqadmin_cli();
+    sleep(Duration::from_millis(1000)).await;
+
     // init logger and env variables
     let env: Env = init();
 
@@ -268,8 +331,12 @@ async fn bad_payload_receive_amqp_message() {
     let json_str = serde_json::to_string(&json_val).unwrap();
     debug!(target: "app", "json_str = {}", json_str);
 
-    // send an AMQP message to the server via `rabbitmqadmin` cli
-    run_rabbitmqadmin_cli(json_str.as_str());
+    tokio::spawn(async move {
+        info!(target: "app", "waiting 2s before running cli command...");
+        sleep(Duration::from_millis(2000)).await;
+        // send an AMQP message to the server via `rabbitmqadmin` cli
+        run_rabbitmqadmin_cli(json_str.as_str());
+    });
 
     // read and process AMQP message
     let delivery = amqp_client.consumer.as_mut().unwrap().next().await.unwrap().unwrap();
@@ -283,4 +350,7 @@ async fn bad_payload_receive_amqp_message() {
 
     // cleanup
     drop_all_collections(&db).await;
+    purge_queue_rabbitmqadmin_cli();
+    sleep(Duration::from_millis(1000)).await;
+    amqp_client.close_connection().await.expect("cannot close connection");
 }

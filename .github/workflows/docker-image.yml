@@ -60,11 +60,9 @@ jobs:
       - name: Install rabbitmqadmin CLI
         run: |
           sudo apt-get update -y
-          wget http://localhost:15672/cli/rabbitmqadmin
-          chmod +x rabbitmqadmin
-          sudo mkdir -p /usr/local/sbin
-          sudo mv rabbitmqadmin /usr/local/sbin/rabbitmqadmin
-          /usr/local/sbin/rabbitmqadmin --version
+          curl https://sh.rustup.rs -sSf | sh
+          cargo install rabbitmqadmin
+          rabbitmqadmin --help
       - name: Run tests
         run: |
           cp .env_template .env

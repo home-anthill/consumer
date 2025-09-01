@@ -68,6 +68,7 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
+    #[test_log::test]
     fn call_document_to_json() {
         let oid = ObjectId::from_str("63963ce7c7fd6d463c6c77a3").unwrap();
         let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";

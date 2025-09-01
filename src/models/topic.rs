@@ -38,6 +38,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
+    #[test_log::test]
     fn check_topic_display() {
         let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
         let sensor_type = "temperature";
