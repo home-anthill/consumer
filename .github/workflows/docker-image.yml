@@ -60,7 +60,7 @@ jobs:
       - name: Install rabbitmqadmin CLI
         run: |
           sudo apt-get update -y
-          curl https://sh.rustup.rs -sSf | sh
+          sudo apt install rustup -y
           cargo install rabbitmqadmin
           rabbitmqadmin --help
       - name: Run tests
