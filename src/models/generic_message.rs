@@ -8,8 +8,9 @@ use crate::models::topic::Topic;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenericMessage {
-    pub uuid: String,
     pub api_token: String,
+    pub device_uuid: String,
+    pub feature_uuid: String,
     pub topic: Topic,
     // payload is variable, because it can be PayloadTrait (Temperature, Humidity...)
     // so I need to parse something that cannot be expressed with a fixed struct
@@ -38,15 +39,17 @@ mod tests {
     #[test]
     #[test_log::test]
     fn ok_get_value_as_bson_f64() {
-        let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
         let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
+        let device_uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
+        let feature_uuid = "41cb3f47-894c-45e9-90d9-a4d4de903896";
         let sensor_type = "temperature";
         let value: f64 = 21.0;
 
-        let topic: Topic = Topic::new(format!("sensors/{}/{}", uuid, sensor_type).as_str());
+        let topic: Topic = Topic::new(format!("sensors/{}/{}", device_uuid, sensor_type).as_str());
         let generic_msg: GenericMessage = GenericMessage {
-            uuid: uuid.to_string(),
             api_token: api_token.to_string(),
+            device_uuid: device_uuid.to_string(),
+            feature_uuid: feature_uuid.to_string(),
             topic,
             payload: json!({ "value": value }),
         };
@@ -58,15 +61,17 @@ mod tests {
     #[test]
     #[test_log::test]
     fn ok_get_value_as_bson_i64() {
-        let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
         let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
+        let device_uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
+        let feature_uuid = "41cb3f47-894c-45e9-90d9-a4d4de903896";
         let sensor_type = "motion";
         let value: i64 = 1;
 
-        let topic: Topic = Topic::new(format!("sensors/{}/{}", uuid, sensor_type).as_str());
+        let topic: Topic = Topic::new(format!("sensors/{}/{}", device_uuid, sensor_type).as_str());
         let generic_msg: GenericMessage = GenericMessage {
-            uuid: uuid.to_string(),
             api_token: api_token.to_string(),
+            device_uuid: device_uuid.to_string(),
+            feature_uuid: feature_uuid.to_string(),
             topic,
             payload: json!({ "value": value }),
         };

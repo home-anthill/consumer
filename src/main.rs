@@ -49,16 +49,16 @@ async fn process_amqp_message(delivery: &Delivery, database: &Database) -> Resul
     // deserialize to a GenericMessage (with turbofish operator "::<GenericMessage>")
     match serde_json::from_str::<GenericMessage>(payload_str) {
         Ok(generic_msg) => {
-            debug!(target: "app", "AMQP message received of type = {}", generic_msg.topic.feature);
+            debug!(target: "app", "AMQP message received of type = {}", generic_msg.topic.feature_name);
             debug!(target: "app", "AMQP message payload deserialized from JSON = {:?}", generic_msg);
 
-            let bson_value_opt: Option<Bson> = match generic_msg.topic.feature.as_str() {
+            let bson_value_opt: Option<Bson> = match generic_msg.topic.feature_name.as_str() {
                 // f64 sensors
                 "temperature" | "humidity" | "light" | "airpressure" => generic_msg.get_value_as_bson_f64(),
                 // i64 sensors
                 "motion" | "airquality" | "poweroutage" => generic_msg.get_value_as_bson_i64(),
                 _ => {
-                    error!(target: "app", "cannot recognize Message payload type = {}", generic_msg.topic.feature);
+                    error!(target: "app", "cannot recognize Message payload type = {}", generic_msg.topic.feature_name);
                     None
                 }
             };

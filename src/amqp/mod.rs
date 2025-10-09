@@ -221,8 +221,7 @@ impl AmqpClient {
 
 pub async fn read_message(delivery: &Delivery) -> &str {
     delivery.ack(BasicAckOptions::default()).await.expect("basic_ack");
-
-    let payload_str = match std::str::from_utf8(&delivery.data) {
+    match std::str::from_utf8(&delivery.data) {
         Ok(res) => {
             debug!(target: "app", "read_message - payload_str: {}", res);
             res
@@ -231,8 +230,7 @@ pub async fn read_message(delivery: &Delivery) -> &str {
             error!(target: "app", "read_message - cannot read payload as utf8. Error = {}", err);
             ""
         }
-    };
-    payload_str
+    }
 }
 
 #[cfg(test)]

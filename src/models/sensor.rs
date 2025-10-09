@@ -6,28 +6,40 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SensorDocument {
     pub _id: ObjectId,
-    pub uuid: String,
-    pub mac: String,
-    pub manufacturer: String,
-    pub model: String,
+    // profile info
     pub profileOwnerId: ObjectId,
     pub apiToken: String,
+    // device info
+    pub deviceUuid: String,
+    pub mac: String,
+    pub model: String,
+    pub manufacturer: String,
+    // feature info
+    pub featureUuid: String,
+    pub featureName: String,
+    pub value: f64,
+    // dates
     pub createdAt: DateTime,
     pub modifiedAt: DateTime,
-    pub value: f64,
 }
 
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Sensor {
     pub _id: String,
-    pub uuid: String,
-    pub mac: String,
-    pub manufacturer: String,
-    pub model: String,
+    // profile info
     pub profileOwnerId: String,
     pub apiToken: String,
+    // device info
+    pub deviceUuid: String,
+    pub mac: String,
+    pub model: String,
+    pub manufacturer: String,
+    // feature info
+    pub featureUuid: String,
+    pub featureName: String,
+    pub value: f64,
+    // dates
     pub createdAt: String,
     pub modifiedAt: String,
-    pub value: f64,
 }

@@ -7,47 +7,31 @@ use crate::tests_integration::sensor_utils::{FloatSensor, IntSensor, new_from_re
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RegisterInput {
-    pub uuid: String,
-    pub mac: String,
-    pub manufacturer: String,
-    pub model: String,
+    // profile info
     pub profileOwnerId: String,
     pub apiToken: String,
+    // device info
+    pub deviceUuid: String,
+    pub mac: String,
+    pub model: String,
+    pub manufacturer: String,
+    // feature info
+    pub featureUuid: String,
 }
 
 pub async fn drop_all_collections(db: &Database) {
-    db.collection::<Document>("temperature")
+    db.collection::<Document>("sensors")
         .drop()
         .await
-        .expect("drop 'temperature' collection");
-    db.collection::<Document>("humidity")
-        .drop()
-        .await
-        .expect("drop 'humidity' collection");
-    db.collection::<Document>("light")
-        .drop()
-        .await
-        .expect("drop 'light' collection");
-    db.collection::<Document>("motion")
-        .drop()
-        .await
-        .expect("drop 'motion' collection");
-    db.collection::<Document>("airpressure")
-        .drop()
-        .await
-        .expect("drop 'airpressure' collection");
-    db.collection::<Document>("airquality")
-        .drop()
-        .await
-        .expect("drop 'airquality' collection");
+        .expect("drop 'sensors' collection");
 }
 
 pub async fn insert_sensor(db: &Database, input: RegisterInput, sensor_type: &str) -> Result<String, anyhow::Error> {
-    let collection = db.collection::<Document>(sensor_type);
+    let collection = db.collection::<Document>("sensors");
 
     let serialized_data: Bson = match sensor_type {
-        "temperature" | "humidity" | "light" => new_from_register_input::<FloatSensor>(input)?,
-        "motion" | "airquality" | "airpressure" => new_from_register_input::<IntSensor>(input)?,
+        "temperature" | "humidity" | "light" => new_from_register_input::<FloatSensor>(input, sensor_type)?,
+        "motion" | "airquality" | "airpressure" => new_from_register_input::<IntSensor>(input, sensor_type)?,
         _ => {
             panic!("Unknown type")
         }

@@ -3,20 +3,22 @@ use rand::prelude::*;
 use crate::tests_integration::db_utils::RegisterInput;
 
 pub fn create_register_input(
-    sensor_uuid: &str,
-    mac: &str,
-    manufacturer: &str,
-    model: &str,
-    api_token: &str,
     profile_owner_id: &str,
+    api_token: &str,
+    device_uuid: &str,
+    mac: &str,
+    model: &str,
+    manufacturer: &str,
+    feature_uuid: &str,
 ) -> RegisterInput {
     RegisterInput {
-        uuid: sensor_uuid.to_string(),
-        mac: mac.to_string(),
-        manufacturer: manufacturer.to_string(),
-        model: model.to_string(),
         profileOwnerId: profile_owner_id.to_string(),
         apiToken: api_token.to_string(),
+        deviceUuid: device_uuid.to_string(),
+        mac: mac.to_string(),
+        model: model.to_string(),
+        manufacturer: manufacturer.to_string(),
+        featureUuid: feature_uuid.to_string(),
     }
 }
 
