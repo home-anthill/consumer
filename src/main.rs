@@ -56,7 +56,7 @@ async fn process_amqp_message(delivery: &Delivery, database: &Database) -> Resul
                 // f64 sensors
                 "temperature" | "humidity" | "light" | "airpressure" => generic_msg.get_value_as_bson_f64(),
                 // i64 sensors
-                "motion" | "airquality" | "poweroutage" => generic_msg.get_value_as_bson_i64(),
+                "motion" | "airquality" | "online" => generic_msg.get_value_as_bson_i64(),
                 _ => {
                     error!(target: "app", "cannot recognize Message payload type = {}", generic_msg.topic.feature_name);
                     None
