@@ -26,19 +26,17 @@ async fn main() {
 
     // 3. Init RabbitMQ
     info!(target: "app", "Initializing RabbitMQ...");
-    let mut amqp_client: AmqpClient = AmqpClient::new(
-        env.amqp_uri.clone(),
-        env.amqp_queue_name.clone(),
-        env.amqp_consumer_tag.clone(),
-    );
-    amqp_client.connect_with_retry_loop().await;
+    let mut amqp_client: AmqpClient =
+        AmqpClient::new(env.amqp_uri.clone(), env.amqp_queue_name.clone()).consumer(env.amqp_consumer_tag.clone());
+    amqp_client.connect(true).await;
     while let Some(delivery_res) = amqp_client.consumer.as_mut().unwrap().next().await {
         if let Ok(delivery) = delivery_res {
             let _ = process_amqp_message(&delivery, &database).await;
         } else {
-            error!(target: "app", "AMQP consumer - delivery_res error = {:?}", delivery_res.err());
-            info!(target: "app", "AMQP reconnecting...");
-            amqp_client.connect_with_retry_loop().await;
+            let err = delivery_res.err();
+            error!(target: "app", "AMQP consumer - delivery_res error = {:?}", err);
+            info!(target: "app", "AMQP consumer - waiting for recovery...");
+            amqp_client.wait_for_recovery(err.unwrap()).await;
         }
     }
 }
@@ -49,8 +47,8 @@ async fn process_amqp_message(delivery: &Delivery, database: &Database) -> Resul
     // deserialize to a GenericMessage (with turbofish operator "::<GenericMessage>")
     match serde_json::from_str::<GenericMessage>(payload_str) {
         Ok(generic_msg) => {
-            debug!(target: "app", "AMQP message received of type = {}", generic_msg.topic.feature_name);
-            debug!(target: "app", "AMQP message payload deserialized from JSON = {:?}", generic_msg);
+            debug!(target: "app", "process_amqp_message - message received of type = {}", generic_msg.topic.feature_name);
+            debug!(target: "app", "process_amqp_message - message payload deserialized from JSON = {:?}", generic_msg);
 
             let bson_value_opt: Option<Bson> = match generic_msg.topic.feature_name.as_str() {
                 // f64 sensors
@@ -58,29 +56,29 @@ async fn process_amqp_message(delivery: &Delivery, database: &Database) -> Resul
                 // i64 sensors
                 "motion" | "airquality" | "online" => generic_msg.get_value_as_bson_i64(),
                 _ => {
-                    error!(target: "app", "cannot recognize Message payload type = {}", generic_msg.topic.feature_name);
+                    error!(target: "app", "process_amqp_message - cannot recognize Message payload type = {}", generic_msg.topic.feature_name);
                     None
                 }
             };
-            debug!(target: "app", "bson_value_opt = {:?}", &bson_value_opt);
+            debug!(target: "app", "process_amqp_message - bson_value_opt = {:?}", &bson_value_opt);
             if let Some(bson_value) = bson_value_opt {
                 match update_sensor(database, &generic_msg, &bson_value).await {
                     Ok(sensor) => {
-                        debug!(target: "app", "sensor db updated with result = {:?}", sensor);
+                        debug!(target: "app", "process_amqp_message - sensor db updated with result = {:?}", sensor);
                         Ok(sensor)
                     }
                     Err(err) => {
-                        error!(target: "app", "cannot update sensor db, err = {:?}", err);
+                        error!(target: "app", "process_amqp_message - cannot update sensor db, err = {:?}", err);
                         Err(MessageError::UpdateDbError(err))
                     }
                 }
             } else {
-                error!(target: "app", "cannot update sensor, because bson_value_opt is None");
+                error!(target: "app", "process_amqp_message - cannot update sensor, because bson_value_opt is None");
                 Err(MessageError::NoneValuePayloadError)
             }
         }
         Err(err) => {
-            error!(target: "app", "Cannot convert payload as json Message. Error = {:?}", err);
+            error!(target: "app", "process_amqp_message - cannot convert payload as json Message. Error = {:?}", err);
             Err(MessageError::MessageParsingError)
         }
     }
