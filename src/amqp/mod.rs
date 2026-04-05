@@ -1,18 +1,28 @@
-use std::string::String;
-
 use lapin::message::Delivery;
-use lapin::options::{BasicAckOptions, BasicConsumeOptions, BasicPublishOptions};
+use lapin::options::BasicConsumeOptions;
 use lapin::types::ShortString;
 use lapin::{
-    BasicProperties, Channel, Connection, ConnectionProperties, Consumer, Error, Queue, options::QueueDeclareOptions,
+    BasicProperties, Channel, Connection, ConnectionProperties, Consumer, Queue,
+    options::{BasicPublishOptions, QueueDeclareOptions},
     types::FieldTable,
 };
 use tracing::{debug, error, info};
+use zeroize::Zeroizing;
 
+use crate::config::redact_uri;
 use crate::errors::amqp_error::AmqpError;
 
+// Fix 8: replace four boolean parameters with a hierarchical level enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum InitLevel {
+    Connection,
+    Channel,
+    Queue,
+    Consumer,
+}
+
 pub struct AmqpClient {
-    amqp_uri: String,
+    amqp_uri: Zeroizing<String>,
     amqp_queue_name: ShortString,
     consumer_tag: ShortString,
     properties: ConnectionProperties,
@@ -26,7 +36,7 @@ pub struct AmqpClient {
 impl AmqpClient {
     pub fn new(amqp_uri: String, amqp_queue_name: String) -> Self {
         Self {
-            amqp_uri,
+            amqp_uri: Zeroizing::new(amqp_uri),
             amqp_queue_name: amqp_queue_name.into(),
             properties: ConnectionProperties::default()
                 .with_connection_name("amqp-client".into())
@@ -40,125 +50,95 @@ impl AmqpClient {
         }
     }
 
-    // Use the builder pattern to init an optional param
-    pub fn consumer(mut self, consumer_tag: String) -> AmqpClient {
+    // Fix 5: return Self instead of the concrete type name
+    #[must_use]
+    pub fn consumer(mut self, consumer_tag: String) -> Self {
         self.consumer_tag = consumer_tag.into();
         self
     }
 
     pub fn is_connected(&self, with_consumer: bool) -> bool {
-        // check if you are calling this method on an initialized amqp_client instance
-        // (with both connection, channel and queue)
-        let init_result: Result<(), AmqpError> = self.is_initialized(true, true, true, with_consumer);
-        if init_result.is_err() {
+        let level = if with_consumer { InitLevel::Consumer } else { InitLevel::Queue };
+        if self.is_initialized(level).is_err() {
             return false;
         }
-        self.connection.as_ref().unwrap().status().connected() && self.channel.as_ref().unwrap().status().connected()
+        self.connection.as_ref().is_some_and(|c| c.status().connected())
+            && self.channel.as_ref().is_some_and(|c| c.status().connected())
     }
 
-    pub async fn connect(&mut self, is_consumer: bool) {
-        info!(target: "app", "connect - trying to connect to amqp_uri={} with queue={}", &self.amqp_uri, &self.amqp_queue_name);
+    pub async fn connect(&mut self, is_consumer: bool) -> Result<(), AmqpError> {
+        info!(target: "app", "connect - trying to connect to amqp_uri={} with queue={}", redact_uri(&self.amqp_uri), &self.amqp_queue_name);
         self.connecting = true;
-        self.create_connection().await.expect("cannot create connection");
+        let result = self.do_connect(is_consumer).await;
+        self.connecting = false;
+        if result.is_ok() {
+            info!(target: "app", "connect - AMQP connection done!");
+        }
+        result
+    }
+
+    async fn do_connect(&mut self, is_consumer: bool) -> Result<(), AmqpError> {
+        self.create_connection().await?;
         info!(target: "app", "connect - creating channel...");
-        self.create_channel().await.expect("cannot create channel");
+        self.create_channel().await?;
         info!(target: "app", "connect - declaring queue...");
-        self.declare_queue().await.expect("cannot declare queue");
+        self.declare_queue().await?;
         if is_consumer {
             info!(target: "app", "connect - creating consumer...");
-            self.create_consumer().await.expect("cannot declare consumer");
+            self.create_consumer().await?;
         }
-        self.connecting = false;
-        info!(target: "app", "connect - AMQP connection done!");
+        Ok(())
     }
 
+    // Fix 3: use ? + map_err instead of match-then-assign
     async fn create_connection(&mut self) -> Result<(), AmqpError> {
         info!(target: "app", "create_connection - creating AMQP connection...");
-        self.connection = match Connection::connect(&self.amqp_uri, self.properties.clone()).await {
-            Ok(connection) => {
-                info!(target: "app", "create_connection - AMQP connection established");
-                Some(connection)
-            }
-            Err(err) => {
-                error!(target: "app", "create_connection - cannot create AMQP connection. Err = {:?}", err);
-                None
-            }
-        };
+        let connection = Connection::connect(&self.amqp_uri, self.properties.clone()).await.map_err(|err| {
+            error!(target: "app", "create_connection - cannot create AMQP connection. Err = {:?}", err);
+            AmqpError::ConnectionError("amqp_client connection error".into())
+        })?;
+        info!(target: "app", "create_connection - AMQP connection established");
+        self.connection = Some(connection);
         Ok(())
     }
 
     // private method that must be called after create_connection()
     async fn create_channel(&mut self) -> Result<(), AmqpError> {
         info!(target: "app", "create_channel - creating AMQP channel...");
-        // check if you are calling this method on an initialized amqp_client instance (with ONLY connection)
-        let init_result: Result<(), AmqpError> = self.is_initialized(true, false, false, false);
-        // if initialization fails, return the error
-        // I'm using the '?' operator as https://rust-lang.github.io/rust-clippy/master/index.html#/question_mark
-        // instead of the verbose syntax
-        // if let Err(err) = init_result { return Err(err); }
-        init_result?;
-        self.channel = match self.connection.as_ref().unwrap().create_channel().await {
-            Ok(channel) => {
-                info!(target: "app", "create_channel - AMQP channel created");
-                Some(channel)
-            }
-            Err(err) => {
-                error!(target: "app", "create_channel - cannot create AMQP channel. Err = {:?}", err);
-                None
-            }
-        };
+        self.is_initialized(InitLevel::Connection)?;
+        let connection = self.connection.as_ref().expect("connection is Some: checked by is_initialized");
+        let channel = connection.create_channel().await.map_err(|err| {
+            error!(target: "app", "create_channel - cannot create AMQP channel. Err = {:?}", err);
+            AmqpError::ConnectionError("amqp_client channel creation error".into())
+        })?;
+        info!(target: "app", "create_channel - AMQP channel created");
+        self.channel = Some(channel);
         Ok(())
     }
 
     // private method that must be called after both create_connection() and create_channel()
     async fn declare_queue(&mut self) -> Result<(), AmqpError> {
         info!(target: "app", "declare_queue - creating AMQP queue...");
-        // check if you are calling this method on an initialized amqp_client instance
-        // (with both connection and channel, but not queue)
-        let init_result: Result<(), AmqpError> = self.is_initialized(true, true, false, false);
-        // if initialization fails, return the error
-        // I'm using the '?' operator as https://rust-lang.github.io/rust-clippy/master/index.html#/question_mark
-        // instead of the verbose syntax
-        // if let Err(err) = init_result { return Err(err); }
-        init_result?;
-        self.queue = match self
-            .channel
-            .as_ref()
-            .unwrap()
-            .queue_declare(
-                self.amqp_queue_name.clone(),
-                QueueDeclareOptions::default(),
-                FieldTable::default(),
-            )
+        self.is_initialized(InitLevel::Channel)?;
+        let channel = self.channel.as_ref().expect("channel is Some: checked by is_initialized");
+        let queue = channel
+            .queue_declare(self.amqp_queue_name.clone(), QueueDeclareOptions::default(), FieldTable::default())
             .await
-        {
-            Ok(channel) => {
-                info!(target: "app", "declare_queue - AMQP queue created");
-                Some(channel)
-            }
-            Err(err) => {
+            .map_err(|err| {
                 error!(target: "app", "declare_queue - cannot create AMQP queue. Err = {:?}", err);
-                None
-            }
-        };
+                AmqpError::ConnectionError("amqp_client queue declaration error".into())
+            })?;
+        info!(target: "app", "declare_queue - AMQP queue created");
+        self.queue = Some(queue);
         Ok(())
     }
 
-    // private method that must be called after both create_connection(), create_channel() and create_queue()
+    // private method that must be called after create_connection(), create_channel() and declare_queue()
     async fn create_consumer(&mut self) -> Result<(), AmqpError> {
         info!(target: "app", "create_consumer - creating AMQP consumer...");
-        // check if you are calling this method on an initialized amqp_client instance
-        // (with both connection, channel and queue, but not consumer)
-        let init_result: Result<(), AmqpError> = self.is_initialized(true, true, true, false);
-        // if initialization fails, return the error
-        // I'm using the '?' operator as https://rust-lang.github.io/rust-clippy/master/index.html#/question_mark
-        // instead of the verbose syntax
-        // if let Err(err) = init_result { return Err(err); }
-        init_result?;
-        self.consumer = match self
-            .channel
-            .as_ref()
-            .unwrap()
+        self.is_initialized(InitLevel::Queue)?;
+        let channel = self.channel.as_ref().expect("channel is Some: checked by is_initialized");
+        let consumer = channel
             .basic_consume(
                 self.amqp_queue_name.clone(),
                 self.consumer_tag.clone(),
@@ -166,180 +146,121 @@ impl AmqpClient {
                 FieldTable::default(),
             )
             .await
-        {
-            Ok(consumer) => {
-                info!(target: "app", "create_consumer - AMQP consumer created");
-                Some(consumer)
-            }
-            Err(err) => {
+            .map_err(|err| {
                 error!(target: "app", "create_consumer - cannot create AMQP consumer. Err = {:?}", err);
-                None
-            }
-        };
+                AmqpError::ConnectionError("amqp_client consumer creation error".into())
+            })?;
+        info!(target: "app", "create_consumer - AMQP consumer created");
+        self.consumer = Some(consumer);
         Ok(())
     }
 
     // before calling this method you must be sure that a channel has been created
-    pub async fn publish_message(&mut self, amqp_queue_name: &str, msg_byte: Vec<u8>) -> Result<(), AmqpError> {
+    pub async fn publish_message(&mut self, amqp_queue_name: &str, msg_byte: &[u8]) -> Result<(), AmqpError> {
         debug!(target: "app", "publish_message - publishing byte message to queue {}...", amqp_queue_name);
         if self.connecting {
             error!(target: "app", "publish_message - cannot publish while amqp_client is not initialized");
-            return Err(AmqpError::Uninitialized(String::from(
-                "cannot publish while amqp_client is not initialized",
-            )));
+            return Err(AmqpError::Uninitialized("cannot publish while amqp_client is not initialized".into()));
         }
-        let publish_result = self
-            .channel
-            .as_ref()
-            .unwrap()
+        self.is_initialized(InitLevel::Queue)?;
+        let channel = self.channel.as_ref().expect("channel is Some: checked by is_initialized");
+        let publish_result = channel
             .basic_publish(
                 "".into(),
                 amqp_queue_name.into(),
                 BasicPublishOptions::default(),
-                msg_byte.as_slice(),
+                msg_byte,
                 BasicProperties::default(),
             )
             .await;
         match publish_result {
             Ok(_) => Ok(()),
             Err(err) => {
-                self.connecting = true;
                 error!(target: "app", "publish_message - cannot publish, waiting for recovery...");
-                let recovery_result = self.channel.as_ref().unwrap().wait_for_recovery(err).await;
-                match recovery_result {
-                    Ok(_) => {
-                        self.connecting = false;
-                        Err(AmqpError::ErrorButRecovered(String::from(
-                            "amqp_client error, but connection recovered",
-                        )))
-                    }
-                    Err(_) => Err(AmqpError::ErrorCannotRecover(String::from(
-                        "amqp_client error, cannot auto recover",
-                    ))),
-                }
+                self.wait_for_recovery(err).await
             }
         }
     }
 
-    fn is_initialized(
-        &self,
-        check_connection: bool,
-        check_channel: bool,
-        check_queue: bool,
-        check_consumer: bool,
-    ) -> Result<(), AmqpError> {
-        if check_connection && self.connection.is_none() {
+    // Fix 8: is_initialized now takes an InitLevel enum instead of four booleans.
+    // Connection is always checked; Channel/Queue/Consumer only when level >= that tier.
+    fn is_initialized(&self, level: InitLevel) -> Result<(), AmqpError> {
+        if self.connection.is_none() {
             error!(target: "app", "is_initialized - amqp_client connection not initialized");
-            return Err(AmqpError::Uninitialized(String::from(
-                "amqp_client connection not initialized",
-            )));
+            return Err(AmqpError::Uninitialized("amqp_client connection not initialized".into()));
         }
-        if check_channel && self.channel.is_none() {
+        if level >= InitLevel::Channel && self.channel.is_none() {
             error!(target: "app", "is_initialized - amqp_client channel not initialized");
-            return Err(AmqpError::Uninitialized(String::from(
-                "amqp_client channel not initialized",
-            )));
+            return Err(AmqpError::Uninitialized("amqp_client channel not initialized".into()));
         }
-        if check_queue && self.queue.is_none() {
+        if level >= InitLevel::Queue && self.queue.is_none() {
             error!(target: "app", "is_initialized - amqp_client queue not initialized");
-            return Err(AmqpError::Uninitialized(String::from(
-                "amqp_client queue not initialized",
-            )));
+            return Err(AmqpError::Uninitialized("amqp_client queue not initialized".into()));
         }
-        if check_consumer && self.consumer.is_none() {
+        if level >= InitLevel::Consumer && self.consumer.is_none() {
             error!(target: "app", "is_initialized - amqp_client consumer not initialized");
-            return Err(AmqpError::Uninitialized(String::from(
-                "amqp_client consumer not initialized",
-            )));
+            return Err(AmqpError::Uninitialized("amqp_client consumer not initialized".into()));
         }
         Ok(())
     }
 
-    pub async fn close_connection(&mut self) -> Result<(), Error> {
-        self.connection.as_ref().unwrap().close(0, "".into()).await
+    pub async fn close_connection(&mut self) -> Result<(), AmqpError> {
+        self.is_initialized(InitLevel::Connection)?;
+        let connection = self.connection.as_ref().expect("connection is Some: checked by is_initialized");
+        connection
+            .close(0, "".into())
+            .await
+            .map_err(|e| AmqpError::ConnectionError(format!("cannot close connection: {}", e)))
     }
 
-    pub async fn wait_for_recovery(&mut self, err: Error) -> Result<(), AmqpError> {
+    pub async fn wait_for_recovery(&mut self, err: lapin::Error) -> Result<(), AmqpError> {
         info!(target: "app", "wait_for_recovery");
-        // check if you are calling this method on an initialized amqp_client instance
-        // (with both connection, channel and queue, but not consumer)
-        let init_result: Result<(), AmqpError> = self.is_initialized(true, true, true, false);
-        // if initialization fails, return the error
-        // I'm using the '?' operator as https://rust-lang.github.io/rust-clippy/master/index.html#/question_mark
-        // instead of the verbose syntax
-        // if let Err(err) = init_result { return Err(err); }
-        // init_result?;
-        let recovery_result = self.channel.as_ref().unwrap().wait_for_recovery(err).await;
-        match recovery_result {
-            Ok(_) => {
-                self.connecting = false;
-                Err(AmqpError::ErrorButRecovered(String::from(
-                    "amqp_client error, but connection recovered",
-                )))
-            }
-            Err(_) => Err(AmqpError::ErrorCannotRecover(String::from(
-                "amqp_client error, cannot auto recover",
-            ))),
+        self.is_initialized(InitLevel::Queue)?;
+        self.connecting = true;
+        let channel = self.channel.as_ref().expect("channel is Some: checked by is_initialized");
+        let recovery_result = channel.wait_for_recovery(err).await;
+        self.connecting = false;
+        if recovery_result.is_ok() {
+            Err(AmqpError::ErrorButRecovered("amqp_client error, but connection recovered".into()))
+        } else {
+            Err(AmqpError::ErrorCannotRecover("amqp_client error, cannot auto recover".into()))
         }
     }
 }
 
-pub async fn read_message(delivery: &Delivery) -> &str {
-    delivery.ack(BasicAckOptions::default()).await.expect("basic_ack");
-    std::str::from_utf8(&delivery.data).unwrap_or_else(|err| {
-        error!(target: "app", "read_message - cannot read payload as utf8. Error = {}", err);
-        ""
-    })
+const MAX_MESSAGE_BYTES: usize = 65_536; // 64 KiB
+
+pub fn read_message(delivery: &Delivery) -> Result<&str, crate::errors::message_error::MessageError> {
+    if delivery.data.len() > MAX_MESSAGE_BYTES {
+        return Err(crate::errors::message_error::MessageError::MessageTooLarge(delivery.data.len()));
+    }
+    Ok(std::str::from_utf8(&delivery.data)?)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::amqp::AmqpClient;
-    use crate::config::{Env, init};
-    use crate::errors::amqp_error::AmqpError;
+    use crate::amqp::{AmqpClient, InitLevel};
+    use crate::config::Env;
     use pretty_assertions::assert_eq;
 
     #[test]
     #[test_log::test]
     fn wrong_is_initialized() {
-        // init logger and env variables
-        let env: Env = init();
+        // Load env vars without calling init() to avoid conflicting with the
+        // global tracing subscriber already installed by #[test_log::test].
+        dotenvy::dotenv().ok();
+        let env = envy::from_env::<Env>().expect("failed to parse environment variables");
         // create amqp_client without connecting it to the AMQP server
         let amqp_client =
             AmqpClient::new(env.amqp_uri.clone(), env.amqp_queue_name.clone()).consumer("consumer-tag".to_string());
 
-        // cover all possible errors returned by the `is_initialized` method
-        let mut res = amqp_client.is_initialized(true, true, true, true);
-        assert_eq!(
-            res.err().unwrap().to_string(),
-            anyhow::Error::from(AmqpError::Uninitialized(String::from(
-                "amqp_client connection not initialized",
-            )))
-            .to_string()
-        );
-        res = amqp_client.is_initialized(false, true, true, true);
-        assert_eq!(
-            res.err().unwrap().to_string(),
-            anyhow::Error::from(AmqpError::Uninitialized(String::from(
-                "amqp_client channel not initialized",
-            )))
-            .to_string()
-        );
-        res = amqp_client.is_initialized(false, false, true, true);
-        assert_eq!(
-            res.err().unwrap().to_string(),
-            anyhow::Error::from(AmqpError::Uninitialized(String::from(
-                "amqp_client queue not initialized",
-            )))
-            .to_string()
-        );
-        res = amqp_client.is_initialized(false, false, false, true);
-        assert_eq!(
-            res.err().unwrap().to_string(),
-            anyhow::Error::from(AmqpError::Uninitialized(String::from(
-                "amqp_client consumer not initialized. You must call AmqpClient::new()",
-            )))
-            .to_string()
-        );
+        // When nothing is initialized, all levels fail at the connection check
+        for level in [InitLevel::Connection, InitLevel::Channel, InitLevel::Queue, InitLevel::Consumer] {
+            let res = amqp_client.is_initialized(level);
+            assert_eq!(
+                res.err().unwrap().to_string(),
+                "amqp_client not initialized: amqp_client connection not initialized"
+            );
+        }
     }
 }

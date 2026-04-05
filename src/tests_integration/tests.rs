@@ -1,9 +1,13 @@
 use futures_lite::StreamExt;
+
+use std::process::Command;
+use std::time::Duration;
+
+use hmac::{Hmac, KeyInit, Mac};
 use mongodb::Database;
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use std::process::Command;
-use std::time::Duration;
+use sha2::Sha256;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
 use uuid::Uuid;
@@ -13,11 +17,15 @@ use consumer::config::{Env, init};
 use consumer::db::connect;
 use consumer::errors::message_error::MessageError;
 
-use crate::process_amqp_message;
 use crate::tests_integration::db_utils::{RegisterInput, drop_all_collections, insert_sensor};
 use crate::tests_integration::test_utils::{create_register_input, get_random_mac};
+use crate::{ReplayCache, process_delivery};
 
-fn run_rabbitmqadmin_cli(payload: &str) {
+fn run_rabbitmqadmin_cli(payload: &str, hmac_secret: &str, message_id: &str) {
+    let mut mac = Hmac::<Sha256>::new_from_slice(hmac_secret.as_bytes()).unwrap();
+    mac.update(payload.as_bytes());
+    let sig_hex = hex::encode(mac.finalize().into_bytes());
+
     Command::new("rabbitmqadmin")
         .arg("-P")
         .arg("15672")
@@ -33,6 +41,8 @@ fn run_rabbitmqadmin_cli(payload: &str) {
         .arg("amq.default")
         .arg("-m")
         .arg(payload)
+        .arg("--properties")
+        .arg(format!("{{\"headers\": {{\"x-hmac-sha256\": \"{sig_hex}\"}}, \"message_id\": \"{message_id}\"}}"))
         .spawn()
         .unwrap()
         .wait()
@@ -69,14 +79,14 @@ async fn ok_receive_float_amqp_message() {
     // init DB client
     let db: Database = connect(&env).await.unwrap_or_else(|error| {
         error!(target: "app", "MongoDB - cannot connect {:?}", error);
-        panic!("cannot connect to MongoDB:: {:?}", error)
+        panic!("cannot connect to MongoDB:: {error:?}")
     });
     drop_all_collections(&db).await;
 
     // init AMQP client
     let mut amqp_client: AmqpClient =
         AmqpClient::new(env.amqp_uri.clone(), env.amqp_queue_name.clone()).consumer(env.amqp_consumer_tag.clone());
-    amqp_client.connect(true).await;
+    amqp_client.connect(true).await.expect("cannot connect to RabbitMQ");
 
     // create AMQP message payload
     let device_uuid: String = Uuid::new_v4().to_string();
@@ -105,42 +115,44 @@ async fn ok_receive_float_amqp_message() {
     let profile_owner_id = "63963ce7c7fd6d463c6c77a3";
     let manufacturer = "ks89";
     let model = "test-model";
-    let register_body: RegisterInput = create_register_input(
-        profile_owner_id,
-        &api_token,
-        &device_uuid,
-        &mac,
-        model,
-        manufacturer,
-        &feature_uuid,
-    );
+    let register_body: RegisterInput =
+        create_register_input(profile_owner_id, &api_token, &device_uuid, &mac, model, manufacturer, &feature_uuid);
     let _ = insert_sensor(&db, register_body, sensor_type).await;
 
-    // send an AMQP message to the server via `rabbitmqadmin` cli
+    let hmac_secret_clone = env.amqp_hmac_secret.clone();
+    let message_id = Uuid::new_v4().to_string();
+    let message_id_clone = message_id.clone();
     tokio::spawn(async move {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str());
+        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone);
     });
     // read and process AMQP message
-    let delivery = amqp_client.consumer.as_mut().unwrap().next().await.unwrap().unwrap();
-    let result = process_amqp_message(&delivery, &db).await;
+    let delivery = amqp_client
+        .consumer
+        .as_mut()
+        .expect("consumer initialized")
+        .next()
+        .await
+        .expect("consumer stream not ended")
+        .expect("delivery not an error");
+    let result = process_delivery(&delivery, &db, &env.amqp_hmac_secret, &mut ReplayCache::new()).await;
 
     // check results: resulting sensor should have the updated 'value'
     let sensor = result.unwrap().unwrap();
     // profile info
-    assert_eq!(sensor.profileOwnerId, profile_owner_id);
-    assert_eq!(sensor.apiToken, api_token);
+    assert_eq!(sensor.profile_owner_id, profile_owner_id);
+    assert_eq!(sensor.api_token, api_token);
     // device info
-    assert_eq!(sensor.deviceUuid, device_uuid);
+    assert_eq!(sensor.device_uuid, device_uuid);
     assert_eq!(sensor.mac, mac);
     assert_eq!(sensor.model, model);
     assert_eq!(sensor.manufacturer, manufacturer);
     // feature info
-    assert_eq!(sensor.featureUuid, feature_uuid);
-    assert_eq!(sensor.featureName, sensor_type);
-    assert_eq!(sensor.value, value);
+    assert_eq!(sensor.feature_uuid, feature_uuid);
+    assert_eq!(sensor.feature_name, sensor_type);
+    assert!((sensor.value - value).abs() < f64::EPSILON);
 
     // cleanup
     drop_all_collections(&db).await;
@@ -161,14 +173,14 @@ async fn ok_receive_int_amqp_message() {
     // init DB client
     let db: Database = connect(&env).await.unwrap_or_else(|error| {
         error!(target: "app", "MongoDB - cannot connect {:?}", error);
-        panic!("cannot connect to MongoDB:: {:?}", error)
+        panic!("cannot connect to MongoDB:: {error:?}")
     });
     drop_all_collections(&db).await;
 
     // init AMQP client
     let mut amqp_client: AmqpClient =
         AmqpClient::new(env.amqp_uri.clone(), env.amqp_queue_name.clone()).consumer(env.amqp_consumer_tag.clone());
-    amqp_client.connect(true).await;
+    amqp_client.connect(true).await.expect("cannot connect to RabbitMQ");
 
     // create AMQP message payload
     let device_uuid: String = Uuid::new_v4().to_string();
@@ -197,43 +209,46 @@ async fn ok_receive_int_amqp_message() {
     let profile_owner_id = "63963ce7c7fd6d463c6c77a3";
     let manufacturer = "ks89";
     let model = "test-model";
-    let register_body: RegisterInput = create_register_input(
-        profile_owner_id,
-        &api_token,
-        &device_uuid,
-        &mac,
-        model,
-        manufacturer,
-        &feature_uuid,
-    );
+    let register_body: RegisterInput =
+        create_register_input(profile_owner_id, &api_token, &device_uuid, &mac, model, manufacturer, &feature_uuid);
     info!(target: "app", "inserting sensor");
     let _ = insert_sensor(&db, register_body, sensor_type).await;
 
+    let hmac_secret_clone = env.amqp_hmac_secret.clone();
+    let message_id = Uuid::new_v4().to_string();
+    let message_id_clone = message_id.clone();
     tokio::spawn(async move {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str());
+        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone);
     });
 
     // read and process AMQP message
-    let delivery = amqp_client.consumer.as_mut().unwrap().next().await.unwrap().unwrap();
-    let result = process_amqp_message(&delivery, &db).await;
+    let delivery = amqp_client
+        .consumer
+        .as_mut()
+        .expect("consumer initialized")
+        .next()
+        .await
+        .expect("consumer stream not ended")
+        .expect("delivery not an error");
+    let result = process_delivery(&delivery, &db, &env.amqp_hmac_secret, &mut ReplayCache::new()).await;
 
     // check results: resulting sensor should have the updated 'value'
     let sensor = result.unwrap().unwrap();
     // profile info
-    assert_eq!(sensor.profileOwnerId, profile_owner_id);
-    assert_eq!(sensor.apiToken, api_token);
+    assert_eq!(sensor.profile_owner_id, profile_owner_id);
+    assert_eq!(sensor.api_token, api_token);
     // device info
-    assert_eq!(sensor.deviceUuid, device_uuid);
+    assert_eq!(sensor.device_uuid, device_uuid);
     assert_eq!(sensor.mac, mac);
     assert_eq!(sensor.model, model);
     assert_eq!(sensor.manufacturer, manufacturer);
     // feature info
-    assert_eq!(sensor.featureUuid, feature_uuid);
-    assert_eq!(sensor.featureName, sensor_type);
-    assert_eq!(sensor.value as i64, value);
+    assert_eq!(sensor.feature_uuid, feature_uuid);
+    assert_eq!(sensor.feature_name, sensor_type);
+    assert_eq!(sensor.value, value as f64);
 
     // cleanup
     drop_all_collections(&db).await;
@@ -254,14 +269,14 @@ async fn missing_sensor_receive_amqp_message() {
     // init DB client
     let db: Database = connect(&env).await.unwrap_or_else(|error| {
         error!(target: "app", "MongoDB - cannot connect {:?}", error);
-        panic!("cannot connect to MongoDB:: {:?}", error)
+        panic!("cannot connect to MongoDB:: {error:?}")
     });
     drop_all_collections(&db).await;
 
     // init AMQP client
     let mut amqp_client: AmqpClient =
         AmqpClient::new(env.amqp_uri.clone(), env.amqp_queue_name.clone()).consumer(env.amqp_consumer_tag.clone());
-    amqp_client.connect(true).await;
+    amqp_client.connect(true).await.expect("cannot connect to RabbitMQ");
 
     // create AMQP message payload
     let device_uuid: String = Uuid::new_v4().to_string();
@@ -285,21 +300,31 @@ async fn missing_sensor_receive_amqp_message() {
     let json_str = serde_json::to_string(&json_val).unwrap();
     debug!(target: "app", "json_str = {}", json_str);
 
+    let hmac_secret_clone = env.amqp_hmac_secret.clone();
+    let message_id = Uuid::new_v4().to_string();
+    let message_id_clone = message_id.clone();
     tokio::spawn(async move {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str());
+        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone);
     });
 
     // read and process AMQP message
-    let delivery = amqp_client.consumer.as_mut().unwrap().next().await.unwrap().unwrap();
-    let result = process_amqp_message(&delivery, &db).await;
+    let delivery = amqp_client
+        .consumer
+        .as_mut()
+        .expect("consumer initialized")
+        .next()
+        .await
+        .expect("consumer stream not ended")
+        .expect("delivery not an error");
+    let result = process_delivery(&delivery, &db, &env.amqp_hmac_secret, &mut ReplayCache::new()).await;
 
-    // check results: it must be an error, because `sensor_type="unknowntype"` is not valid
+    // check results: it must be an error, because `sensor_type="unknowntype"` is rejected by validate()
     assert_eq!(
         result.err().unwrap().to_string(),
-        anyhow::Error::from(MessageError::NoneValuePayloadError).to_string()
+        MessageError::ValidationError("unknown feature_name: unknowntype".to_string()).to_string()
     );
 
     // cleanup
@@ -321,14 +346,14 @@ async fn bad_payload_receive_amqp_message() {
     // init DB client
     let db: Database = connect(&env).await.unwrap_or_else(|error| {
         error!(target: "app", "MongoDB - cannot connect {:?}", error);
-        panic!("cannot connect to MongoDB:: {:?}", error)
+        panic!("cannot connect to MongoDB:: {error:?}")
     });
     drop_all_collections(&db).await;
 
     // init AMQP client
     let mut amqp_client: AmqpClient =
         AmqpClient::new(env.amqp_uri.clone(), env.amqp_queue_name.clone()).consumer(env.amqp_consumer_tag.clone());
-    amqp_client.connect(true).await;
+    amqp_client.connect(true).await.expect("cannot connect to RabbitMQ");
 
     // create AMQP message payload
     let json_val = json!({
@@ -337,22 +362,29 @@ async fn bad_payload_receive_amqp_message() {
     let json_str = serde_json::to_string(&json_val).unwrap();
     debug!(target: "app", "json_str = {}", json_str);
 
+    let hmac_secret_clone = env.amqp_hmac_secret.clone();
+    let message_id = Uuid::new_v4().to_string();
+    let message_id_clone = message_id.clone();
     tokio::spawn(async move {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str());
+        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone);
     });
 
     // read and process AMQP message
-    let delivery = amqp_client.consumer.as_mut().unwrap().next().await.unwrap().unwrap();
-    let result = process_amqp_message(&delivery, &db).await;
+    let delivery = amqp_client
+        .consumer
+        .as_mut()
+        .expect("consumer initialized")
+        .next()
+        .await
+        .expect("consumer stream not ended")
+        .expect("delivery not an error");
+    let result = process_delivery(&delivery, &db, &env.amqp_hmac_secret, &mut ReplayCache::new()).await;
 
     // check results: it must be an error, because json message is not valid (not deserializable as GenericMessage)
-    assert_eq!(
-        result.err().unwrap().to_string(),
-        MessageError::MessageParsingError.to_string()
-    );
+    assert_eq!(result.err().unwrap().to_string(), MessageError::MessageParsingError.to_string());
 
     // cleanup
     drop_all_collections(&db).await;

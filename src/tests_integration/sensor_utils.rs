@@ -1,6 +1,5 @@
 use mongodb::bson::oid::ObjectId;
-use mongodb::bson::{Bson, DateTime, oid, to_bson};
-use oid::Error;
+use mongodb::bson::{Bson, DateTime, to_bson};
 use serde::{Deserialize, Serialize};
 
 use crate::tests_integration::db_utils::RegisterInput;
@@ -49,101 +48,46 @@ pub struct FloatSensor {
     pub modifiedAt: DateTime,
 }
 
+pub struct SensorConfig {
+    pub profile_owner_id: String,
+    pub api_token: String,
+    pub device_uuid: String,
+    pub mac: String,
+    pub model: String,
+    pub manufacturer: String,
+    pub feature_uuid: String,
+    pub feature_name: String,
+}
+
 pub trait Sensor {
-    fn new(
-        // profile info
-        profile_owner_id: String,
-        api_token: String,
-        // device info
-        device_uuid: String,
-        mac: String,
-        model: String,
-        manufacturer: String,
-        // feature info
-        feature_uuid: String,
-        feature_name: String,
-    ) -> Self;
+    fn new(config: SensorConfig) -> Self;
 }
 
 impl Sensor for IntSensor {
-    fn new(
-        // profile info
-        profile_owner_id: String,
-        api_token: String,
-        // device info
-        device_uuid: String,
-        mac: String,
-        model: String,
-        manufacturer: String,
-        // feature info
-        feature_uuid: String,
-        feature_name: String,
-    ) -> Self {
-        Self::new(
-            profile_owner_id,
-            api_token,
-            device_uuid,
-            mac,
-            model,
-            manufacturer,
-            feature_uuid,
-            feature_name,
-        )
+    fn new(config: SensorConfig) -> Self {
+        IntSensor::new(config)
     }
 }
 
 impl Sensor for FloatSensor {
-    fn new(
-        // profile info
-        profile_owner_id: String,
-        api_token: String,
-        // device info
-        device_uuid: String,
-        mac: String,
-        model: String,
-        manufacturer: String,
-        // feature info
-        feature_uuid: String,
-        feature_name: String,
-    ) -> Self {
-        Self::new(
-            profile_owner_id,
-            api_token,
-            device_uuid,
-            mac,
-            model,
-            manufacturer,
-            feature_uuid,
-            feature_name,
-        )
+    fn new(config: SensorConfig) -> Self {
+        FloatSensor::new(config)
     }
 }
 
 impl IntSensor {
-    pub fn new(
-        // profile info
-        profile_owner_id: String,
-        api_token: String,
-        // device info
-        device_uuid: String,
-        mac: String,
-        model: String,
-        manufacturer: String,
-        // feature info
-        feature_uuid: String,
-        feature_name: String,
-    ) -> Self {
+    pub fn new(config: SensorConfig) -> Self {
         let date_now: DateTime = DateTime::now();
         Self {
             id: ObjectId::new(),
-            profileOwnerId: profile_owner_id.to_string(),
-            apiToken: api_token,
-            deviceUuid: device_uuid,
-            mac,
-            model,
-            manufacturer,
-            featureUuid: feature_uuid,
-            featureName: feature_name,
+            profileOwnerId: config.profile_owner_id,
+            apiToken: config.api_token,
+            deviceUuid: config.device_uuid,
+            mac: config.mac,
+            model: config.model,
+            manufacturer: config.manufacturer,
+            featureUuid: config.feature_uuid,
+            featureName: config.feature_name,
             value: 0,
             createdAt: date_now,
             modifiedAt: date_now,
@@ -152,30 +96,18 @@ impl IntSensor {
 }
 
 impl FloatSensor {
-    pub fn new(
-        // profile info
-        profile_owner_id: String,
-        api_token: String,
-        // device info
-        device_uuid: String,
-        mac: String,
-        model: String,
-        manufacturer: String,
-        // feature info
-        feature_uuid: String,
-        feature_name: String,
-    ) -> Self {
+    pub fn new(config: SensorConfig) -> Self {
         let date_now: DateTime = DateTime::now();
         Self {
             id: ObjectId::new(),
-            profileOwnerId: profile_owner_id,
-            apiToken: api_token,
-            deviceUuid: device_uuid,
-            mac,
-            model,
-            manufacturer,
-            featureUuid: feature_uuid,
-            featureName: feature_name,
+            profileOwnerId: config.profile_owner_id,
+            apiToken: config.api_token,
+            deviceUuid: config.device_uuid,
+            mac: config.mac,
+            model: config.model,
+            manufacturer: config.manufacturer,
+            featureUuid: config.feature_uuid,
+            featureName: config.feature_name,
             value: 0.0,
             createdAt: date_now,
             modifiedAt: date_now,
@@ -183,16 +115,17 @@ impl FloatSensor {
     }
 }
 
-pub fn new_from_register_input<T: Sensor + Serialize>(input: RegisterInput, sensor_type: &str) -> Result<Bson, Error> {
-    let result = T::new(
-        input.profileOwnerId.clone(),
-        input.apiToken.clone(),
-        input.deviceUuid.clone(),
-        input.mac.clone(),
-        input.model.clone(),
-        input.manufacturer.clone(),
-        input.featureUuid.clone(),
-        sensor_type.to_string(), // featureName
-    );
-    Ok(to_bson(&result).unwrap())
+pub fn new_from_register_input<T: Sensor + Serialize>(input: RegisterInput, sensor_type: &str) -> Bson {
+    let config = SensorConfig {
+        profile_owner_id: input.profileOwnerId,
+        api_token: input.apiToken,
+        device_uuid: input.deviceUuid,
+        mac: input.mac,
+        model: input.model,
+        manufacturer: input.manufacturer,
+        feature_uuid: input.featureUuid,
+        feature_name: sensor_type.to_string(),
+    };
+    let result = T::new(config);
+    to_bson(&result).expect("sensor serialization to BSON cannot fail")
 }

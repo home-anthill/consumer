@@ -1,45 +1,47 @@
-use mongodb::bson::DateTime;
 use mongodb::bson::oid::ObjectId;
+use mongodb::bson::{Bson, DateTime};
 use serde::{Deserialize, Serialize};
 
-#[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SensorDocument {
-    pub _id: ObjectId,
+    #[serde(rename = "_id")]
+    pub id: ObjectId,
     // profile info
-    pub profileOwnerId: ObjectId,
-    pub apiToken: String,
+    pub profile_owner_id: ObjectId,
+    pub api_token: String,
     // device info
-    pub deviceUuid: String,
+    pub device_uuid: String,
     pub mac: String,
     pub model: String,
     pub manufacturer: String,
     // feature info
-    pub featureUuid: String,
-    pub featureName: String,
-    pub value: f64,
+    pub feature_uuid: String,
+    pub feature_name: String,
+    pub value: Bson,
     // dates
-    pub createdAt: DateTime,
-    pub modifiedAt: DateTime,
+    pub created_at: DateTime,
+    pub modified_at: DateTime,
 }
 
-#[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Sensor {
-    pub _id: String,
+    #[serde(rename = "_id")]
+    pub id: String,
     // profile info
-    pub profileOwnerId: String,
-    pub apiToken: String,
+    pub profile_owner_id: String,
+    pub api_token: String,
     // device info
-    pub deviceUuid: String,
+    pub device_uuid: String,
     pub mac: String,
     pub model: String,
     pub manufacturer: String,
     // feature info
-    pub featureUuid: String,
-    pub featureName: String,
+    pub feature_uuid: String,
+    pub feature_name: String,
     pub value: f64,
     // dates
-    pub createdAt: String,
-    pub modifiedAt: String,
+    pub created_at: String,
+    pub modified_at: String,
 }

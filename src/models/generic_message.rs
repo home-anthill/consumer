@@ -1,11 +1,17 @@
-use mongodb::bson::{Bson, to_bson};
+use std::fmt;
+
+use mongodb::bson::Bson;
 use serde::Deserialize;
 use serde_json::Value;
+use uuid::Uuid;
 
+use crate::errors::message_error::MessageError;
 use crate::models::topic::Topic;
 
+const KNOWN_FEATURES: &[&str] = &["temperature", "humidity", "light", "airpressure", "motion", "airquality", "online"];
+
 // input message from RabbitMQ
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenericMessage {
     pub api_token: String,
@@ -17,14 +23,64 @@ pub struct GenericMessage {
     pub payload: Value,
 }
 
+impl fmt::Debug for GenericMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GenericMessage")
+            .field("api_token", &"[REDACTED]")
+            .field("device_uuid", &self.device_uuid)
+            .field("feature_uuid", &self.feature_uuid)
+            .field("topic", &self.topic)
+            .field("payload", &self.payload)
+            .finish()
+    }
+}
+
+impl fmt::Display for GenericMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "GenericMessage {{ api_token: [REDACTED], device_uuid: {}, feature_uuid: {}, topic: {}, payload: {} }}",
+            self.device_uuid, self.feature_uuid, self.topic, self.payload
+        )
+    }
+}
+
 impl GenericMessage {
+    pub fn validate(&self) -> Result<(), MessageError> {
+        // H4: validate UUID format for token/uuid fields
+        if Uuid::parse_str(&self.api_token).is_err() {
+            return Err(MessageError::ValidationError("api_token is not a valid UUID".into()));
+        }
+        if Uuid::parse_str(&self.device_uuid).is_err() {
+            return Err(MessageError::ValidationError("device_uuid is not a valid UUID".into()));
+        }
+        if Uuid::parse_str(&self.feature_uuid).is_err() {
+            return Err(MessageError::ValidationError("feature_uuid is not a valid UUID".into()));
+        }
+        if self.topic.family.is_empty() || self.topic.device_id.is_empty() || self.topic.feature_name.is_empty() {
+            return Err(MessageError::ValidationError("topic contains empty segments".into()));
+        }
+        // M3: reject unknown feature names before any DB work is attempted
+        if !KNOWN_FEATURES.contains(&self.topic.feature_name.as_str()) {
+            return Err(MessageError::ValidationError(format!("unknown feature_name: {}", self.topic.feature_name)));
+        }
+        Ok(())
+    }
+
+    pub fn get_bson_value(&self) -> Option<Bson> {
+        match self.topic.feature_name.as_str() {
+            "temperature" | "humidity" | "light" | "airpressure" => self.get_value_as_bson_f64(),
+            "motion" | "airquality" | "online" => self.get_value_as_bson_i64(),
+            _ => None,
+        }
+    }
+
     pub fn get_value_as_bson_f64(&self) -> Option<Bson> {
-        let value: f64 = self.payload.get("value").and_then(|value| value.as_f64())?;
-        to_bson::<f64>(&value).ok()
+        self.payload.get("value").and_then(serde_json::Value::as_f64).filter(|v| v.is_finite()).map(Bson::Double)
     }
     pub fn get_value_as_bson_i64(&self) -> Option<Bson> {
-        let value: i64 = self.payload.get("value").and_then(|value| value.as_i64())?;
-        to_bson::<i64>(&value).ok()
+        let value: i64 = self.payload.get("value").and_then(serde_json::Value::as_i64)?;
+        Some(Bson::Int64(value))
     }
 }
 
@@ -45,7 +101,7 @@ mod tests {
         let sensor_type = "temperature";
         let value: f64 = 21.0;
 
-        let topic: Topic = Topic::new(format!("sensors/{}/{}", device_uuid, sensor_type).as_str());
+        let topic: Topic = Topic::new(format!("sensors/{}/{}", device_uuid, sensor_type).as_str()).unwrap();
         let generic_msg: GenericMessage = GenericMessage {
             api_token: api_token.to_string(),
             device_uuid: device_uuid.to_string(),
@@ -67,7 +123,7 @@ mod tests {
         let sensor_type = "motion";
         let value: i64 = 1;
 
-        let topic: Topic = Topic::new(format!("sensors/{}/{}", device_uuid, sensor_type).as_str());
+        let topic: Topic = Topic::new(format!("sensors/{}/{}", device_uuid, sensor_type).as_str()).unwrap();
         let generic_msg: GenericMessage = GenericMessage {
             api_token: api_token.to_string(),
             device_uuid: device_uuid.to_string(),

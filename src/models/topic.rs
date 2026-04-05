@@ -2,6 +2,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::errors::topic_error::TopicError;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Topic {
@@ -11,24 +13,22 @@ pub struct Topic {
 }
 
 impl Topic {
-    pub fn new(topic: &str) -> Self {
-        let items: Vec<&str> = topic.split('/').collect();
-        Self {
-            family: items.first().unwrap().to_string(),
-            device_id: items.get(1).unwrap().to_string(),
-            feature_name: items.last().unwrap().to_string(),
+    pub fn new(topic: &str) -> Result<Self, TopicError> {
+        let mut parts = topic.splitn(4, '/');
+        match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some(family), Some(device_id), Some(feature_name), None) => Ok(Self {
+                family: family.to_string(),
+                device_id: device_id.to_string(),
+                feature_name: feature_name.to_string(),
+            }),
+            _ => Err(TopicError::InvalidSegmentCount { topic: topic.to_string(), got: topic.split('/').count() }),
         }
     }
 }
 
 impl fmt::Display for Topic {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.write_str(self.family.as_str())?;
-        fmt.write_str("/")?;
-        fmt.write_str(self.device_id.as_str())?;
-        fmt.write_str("/")?;
-        fmt.write_str(self.feature_name.as_str())?;
-        Ok(())
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}/{}/{}", self.family, self.device_id, self.feature_name)
     }
 }
 
@@ -43,7 +43,7 @@ mod tests {
         let uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
         let sensor_type = "temperature";
 
-        let topic: Topic = Topic::new(format!("sensors/{}/{}", uuid, sensor_type).as_str());
+        let topic: Topic = Topic::new(format!("sensors/{}/{}", uuid, sensor_type).as_str()).unwrap();
         let expected = topic.to_string();
         assert_eq!(format!("sensors/{}/{}", uuid, sensor_type), expected);
     }

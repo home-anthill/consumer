@@ -1,0 +1,21 @@
+{
+  "users": [
+    {
+      "name": "consumeruser",
+      "password": "consumerpassword",
+      "tags": "administrator"
+    }
+  ],
+  "vhosts": [
+    { "name": "/" }
+  ],
+  "permissions": [
+    {
+      "user": "consumeruser",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ]
+}
