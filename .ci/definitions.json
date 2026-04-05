@@ -4,6 +4,11 @@
       "name": "consumeruser",
       "password": "consumerpassword",
       "tags": "administrator"
+    },
+    {
+      "name": "guest",
+      "password": "guest",
+      "tags": "administrator"
     }
   ],
   "vhosts": [
@@ -12,6 +17,13 @@
   "permissions": [
     {
       "user": "consumeruser",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    },
+    {
+      "user": "guest",
       "vhost": "/",
       "configure": ".*",
       "write": ".*",
