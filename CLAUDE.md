@@ -29,9 +29,12 @@ ENV=testing RUST_BACKTRACE=full cargo test <test_name> -- --nocapture --test-thr
 
 ## Testing
 
-Tests are integration-only (no unit test mocks). They run **sequentially** (`--test-threads 1`) to avoid test interference.
+There are two layers of tests; all run sequentially (`--test-threads 1`):
 
-**Requirements:**
+- **Unit tests** — inside `src/amqp/mod.rs` and `src/models/generic_message.rs`; no external infrastructure required
+- **Integration tests** — inside `src/tests_integration/tests.rs` (in-tree, accessed via `crate::` imports); require real infrastructure
+
+**Infrastructure requirements for integration tests:**
 - MongoDB replica set running on `localhost:27017` (needed for transactions; sharded-mongodb-compose provides this)
 - RabbitMQ running on `localhost:5672` with management UI on `15672` (default guest/guest credentials)
 - `rabbitmqadmin` CLI installed (tool for publishing test messages to queues via management API)
@@ -39,7 +42,9 @@ Tests are integration-only (no unit test mocks). They run **sequentially** (`--t
 **Test behavior:**
 - `ENV=testing` switches MongoDB to `sensors_test` database and disables file logging (test-log crate captures to stdout)
 - Tests purge the RabbitMQ queue before each test to ensure clean state
-- Test messages are published via `rabbitmqadmin` CLI with HMAC signature and message_id headers set by the test
+- Test messages are published via `rabbitmqadmin` CLI with HMAC signature and `message_id` headers set by the test
+- RabbitMQ management credentials default to parsing the `AMQP_URI`; override with `AMQP_MANAGEMENT_USER` / `AMQP_MANAGEMENT_PASS` env vars
+- `ReplayCache` and `verify_hmac` live in `main.rs` and are imported by integration tests via `use crate::{ReplayCache, process_delivery}`
 - Assertions use `pretty_assertions` for readable diffs
 
 ## Architecture
@@ -69,6 +74,7 @@ Tests are integration-only (no unit test mocks). They run **sequentially** (`--t
 
 Environment variables (see `.env_template`):
 - `MONGO_URI`, `MONGO_DB_NAME`, `AMQP_URI`, `AMQP_HMAC_SECRET`, `AMQP_QUEUE_NAME`, `AMQP_CONSUMER_TAG`
+- `LOG_LEVEL` — optional; controls stdout log level (`debug` default, or `info`/`warn`/`error`)
 
 ## Security
 
@@ -78,6 +84,7 @@ Environment variables (see `.env_template`):
 - Every delivery is HMAC-SHA256 verified using `verify_hmac()` (constant-time: on hex-decode failure the MAC is finalized and discarded so both paths take equal time). HMAC is read from the `x-hmac-sha256` AMQP header.
 - Replay detection uses an in-memory `ReplayCache` (5-minute TTL, 10 000-entry cap); on overflow the oldest entry is evicted.
 - AMQP URI credentials are redacted via `redact_uri()` before any logging.
+- `amqp_uri` is stored as `Zeroizing<String>` (from the `zeroize` crate) so the URI is zeroed in memory on drop.
 
 ## Docker & Deployment
 
@@ -105,7 +112,7 @@ Multi-stage Dockerfile optimizes layer caching and runtime size:
 - Formatting: 4 spaces, max line width 120 (see `rustfmt.toml`)
 - Logging uses `tracing` with target "app" for filtering
 - No `unwrap()` or bare `expect()` in production code; use `?` and `if let` instead
-- No mocking of external services (MongoDB, RabbitMQ, Redis) in tests; all integration tests hit real infrastructure
+- No mocking of external services in integration tests; all hit real infrastructure
 - Custom `Debug` impls redact sensitive fields rather than deriving (e.g., `api_token`, `amqp_hmac_secret`)
 
 ## Common Development Patterns
@@ -113,7 +120,7 @@ Multi-stage Dockerfile optimizes layer caching and runtime size:
 **Adding a new sensor feature type:**
 1. Add the feature name to the whitelist in `GenericMessage::validate()` (models/generic_message.rs)
 2. Add routing in `GenericMessage::get_bson_value()` — decide if it's `f64` or `i64`
-3. Write an integration test in tests_integration/tests.rs using the pattern `ok_receive_<type>_amqp_message()`
+3. Write an integration test in `src/tests_integration/tests.rs` using the pattern `ok_receive_<type>_amqp_message()`
 4. Tests must be sequential and hit real RabbitMQ/MongoDB
 
 **Modifying error handling:**
