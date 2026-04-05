@@ -21,7 +21,27 @@ use crate::tests_integration::db_utils::{RegisterInput, drop_all_collections, in
 use crate::tests_integration::test_utils::{create_register_input, get_random_mac};
 use crate::{ReplayCache, process_delivery};
 
-fn run_rabbitmqadmin_cli(payload: &str, hmac_secret: &str, message_id: &str) {
+/// Returns (username, password) for the RabbitMQ Management HTTP API.
+/// Checks AMQP_MANAGEMENT_USER / AMQP_MANAGEMENT_PASS env vars first; if either is absent,
+/// falls back to parsing the AMQP URI, then to ("guest", "guest").
+fn extract_management_credentials(amqp_uri: &str) -> (String, String) {
+    if let (Ok(user), Ok(pass)) = (std::env::var("AMQP_MANAGEMENT_USER"), std::env::var("AMQP_MANAGEMENT_PASS")) {
+        return (user, pass);
+    }
+    let rest = amqp_uri
+        .strip_prefix("amqps://")
+        .or_else(|| amqp_uri.strip_prefix("amqp://"))
+        .unwrap_or(amqp_uri);
+    if let Some(at_pos) = rest.find('@') {
+        let creds = &rest[..at_pos];
+        if let Some(colon_pos) = creds.find(':') {
+            return (creds[..colon_pos].to_string(), creds[colon_pos + 1..].to_string());
+        }
+    }
+    ("guest".to_string(), "guest".to_string())
+}
+
+fn run_rabbitmqadmin_cli(payload: &str, hmac_secret: &str, message_id: &str, username: &str, password: &str) {
     let mut mac = Hmac::<Sha256>::new_from_slice(hmac_secret.as_bytes()).unwrap();
     mac.update(payload.as_bytes());
     let sig_hex = hex::encode(mac.finalize().into_bytes());
@@ -30,9 +50,9 @@ fn run_rabbitmqadmin_cli(payload: &str, hmac_secret: &str, message_id: &str) {
         .arg("-P")
         .arg("15672")
         .arg("-u")
-        .arg("guest")
+        .arg(username)
         .arg("-p")
-        .arg("guest")
+        .arg(password)
         .arg("publish")
         .arg("message")
         .arg("-k")
@@ -49,14 +69,14 @@ fn run_rabbitmqadmin_cli(payload: &str, hmac_secret: &str, message_id: &str) {
         .expect("publish command failed to start");
 }
 
-fn purge_queue_rabbitmqadmin_cli() {
+fn purge_queue_rabbitmqadmin_cli(username: &str, password: &str) {
     Command::new("rabbitmqadmin")
         .arg("-P")
         .arg("15672")
         .arg("-u")
-        .arg("guest")
+        .arg(username)
         .arg("-p")
-        .arg("guest")
+        .arg(password)
         .arg("purge")
         .arg("queue")
         .arg("--name")
@@ -70,11 +90,12 @@ fn purge_queue_rabbitmqadmin_cli() {
 #[tokio::test]
 #[test_log::test]
 async fn ok_receive_float_amqp_message() {
-    purge_queue_rabbitmqadmin_cli();
-    sleep(Duration::from_millis(1000)).await;
-
     // init logger and env variables
     let env: Env = init();
+    let (mgmt_user, mgmt_pass) = extract_management_credentials(&env.amqp_uri);
+
+    purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
+    sleep(Duration::from_millis(1000)).await;
 
     // init DB client
     let db: Database = connect(&env).await.unwrap_or_else(|error| {
@@ -122,11 +143,13 @@ async fn ok_receive_float_amqp_message() {
     let hmac_secret_clone = env.amqp_hmac_secret.clone();
     let message_id = Uuid::new_v4().to_string();
     let message_id_clone = message_id.clone();
+    let mgmt_user_clone = mgmt_user.clone();
+    let mgmt_pass_clone = mgmt_pass.clone();
     tokio::spawn(async move {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone);
+        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone, &mgmt_user_clone, &mgmt_pass_clone);
     });
     // read and process AMQP message
     let delivery = amqp_client
@@ -156,7 +179,7 @@ async fn ok_receive_float_amqp_message() {
 
     // cleanup
     drop_all_collections(&db).await;
-    purge_queue_rabbitmqadmin_cli();
+    purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
     sleep(Duration::from_millis(1000)).await;
     amqp_client.close_connection().await.expect("cannot close connection");
 }
@@ -164,11 +187,12 @@ async fn ok_receive_float_amqp_message() {
 #[tokio::test]
 #[test_log::test]
 async fn ok_receive_int_amqp_message() {
-    purge_queue_rabbitmqadmin_cli();
-    sleep(Duration::from_millis(1000)).await;
-
     // init logger and env variables
     let env: Env = init();
+    let (mgmt_user, mgmt_pass) = extract_management_credentials(&env.amqp_uri);
+
+    purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
+    sleep(Duration::from_millis(1000)).await;
 
     // init DB client
     let db: Database = connect(&env).await.unwrap_or_else(|error| {
@@ -217,11 +241,13 @@ async fn ok_receive_int_amqp_message() {
     let hmac_secret_clone = env.amqp_hmac_secret.clone();
     let message_id = Uuid::new_v4().to_string();
     let message_id_clone = message_id.clone();
+    let mgmt_user_clone = mgmt_user.clone();
+    let mgmt_pass_clone = mgmt_pass.clone();
     tokio::spawn(async move {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone);
+        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone, &mgmt_user_clone, &mgmt_pass_clone);
     });
 
     // read and process AMQP message
@@ -252,7 +278,7 @@ async fn ok_receive_int_amqp_message() {
 
     // cleanup
     drop_all_collections(&db).await;
-    purge_queue_rabbitmqadmin_cli();
+    purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
     sleep(Duration::from_millis(1000)).await;
     amqp_client.close_connection().await.expect("cannot close connection");
 }
@@ -260,11 +286,12 @@ async fn ok_receive_int_amqp_message() {
 #[tokio::test]
 #[test_log::test]
 async fn missing_sensor_receive_amqp_message() {
-    purge_queue_rabbitmqadmin_cli();
-    sleep(Duration::from_millis(1000)).await;
-
     // init logger and env variables
     let env: Env = init();
+    let (mgmt_user, mgmt_pass) = extract_management_credentials(&env.amqp_uri);
+
+    purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
+    sleep(Duration::from_millis(1000)).await;
 
     // init DB client
     let db: Database = connect(&env).await.unwrap_or_else(|error| {
@@ -303,11 +330,13 @@ async fn missing_sensor_receive_amqp_message() {
     let hmac_secret_clone = env.amqp_hmac_secret.clone();
     let message_id = Uuid::new_v4().to_string();
     let message_id_clone = message_id.clone();
+    let mgmt_user_clone = mgmt_user.clone();
+    let mgmt_pass_clone = mgmt_pass.clone();
     tokio::spawn(async move {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone);
+        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone, &mgmt_user_clone, &mgmt_pass_clone);
     });
 
     // read and process AMQP message
@@ -329,7 +358,7 @@ async fn missing_sensor_receive_amqp_message() {
 
     // cleanup
     drop_all_collections(&db).await;
-    purge_queue_rabbitmqadmin_cli();
+    purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
     sleep(Duration::from_millis(1000)).await;
     amqp_client.close_connection().await.expect("cannot close connection");
 }
@@ -337,11 +366,12 @@ async fn missing_sensor_receive_amqp_message() {
 #[tokio::test]
 #[test_log::test]
 async fn bad_payload_receive_amqp_message() {
-    purge_queue_rabbitmqadmin_cli();
-    sleep(Duration::from_millis(1000)).await;
-
     // init logger and env variables
     let env: Env = init();
+    let (mgmt_user, mgmt_pass) = extract_management_credentials(&env.amqp_uri);
+
+    purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
+    sleep(Duration::from_millis(1000)).await;
 
     // init DB client
     let db: Database = connect(&env).await.unwrap_or_else(|error| {
@@ -365,11 +395,13 @@ async fn bad_payload_receive_amqp_message() {
     let hmac_secret_clone = env.amqp_hmac_secret.clone();
     let message_id = Uuid::new_v4().to_string();
     let message_id_clone = message_id.clone();
+    let mgmt_user_clone = mgmt_user.clone();
+    let mgmt_pass_clone = mgmt_pass.clone();
     tokio::spawn(async move {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone);
+        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone, &mgmt_user_clone, &mgmt_pass_clone);
     });
 
     // read and process AMQP message
@@ -388,7 +420,7 @@ async fn bad_payload_receive_amqp_message() {
 
     // cleanup
     drop_all_collections(&db).await;
-    purge_queue_rabbitmqadmin_cli();
+    purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
     sleep(Duration::from_millis(1000)).await;
     amqp_client.close_connection().await.expect("cannot close connection");
 }
