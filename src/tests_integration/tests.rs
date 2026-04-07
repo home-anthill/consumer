@@ -28,10 +28,7 @@ fn extract_management_credentials(amqp_uri: &str) -> (String, String) {
     if let (Ok(user), Ok(pass)) = (std::env::var("AMQP_MANAGEMENT_USER"), std::env::var("AMQP_MANAGEMENT_PASS")) {
         return (user, pass);
     }
-    let rest = amqp_uri
-        .strip_prefix("amqps://")
-        .or_else(|| amqp_uri.strip_prefix("amqp://"))
-        .unwrap_or(amqp_uri);
+    let rest = amqp_uri.strip_prefix("amqps://").or_else(|| amqp_uri.strip_prefix("amqp://")).unwrap_or(amqp_uri);
     if let Some(at_pos) = rest.find('@') {
         let creds = &rest[..at_pos];
         if let Some(colon_pos) = creds.find(':') {
@@ -149,7 +146,13 @@ async fn ok_receive_float_amqp_message() {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone, &mgmt_user_clone, &mgmt_pass_clone);
+        run_rabbitmqadmin_cli(
+            json_str.as_str(),
+            &hmac_secret_clone,
+            &message_id_clone,
+            &mgmt_user_clone,
+            &mgmt_pass_clone,
+        );
     });
     // read and process AMQP message
     let delivery = amqp_client
@@ -247,7 +250,13 @@ async fn ok_receive_int_amqp_message() {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone, &mgmt_user_clone, &mgmt_pass_clone);
+        run_rabbitmqadmin_cli(
+            json_str.as_str(),
+            &hmac_secret_clone,
+            &message_id_clone,
+            &mgmt_user_clone,
+            &mgmt_pass_clone,
+        );
     });
 
     // read and process AMQP message
@@ -336,7 +345,13 @@ async fn missing_sensor_receive_amqp_message() {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone, &mgmt_user_clone, &mgmt_pass_clone);
+        run_rabbitmqadmin_cli(
+            json_str.as_str(),
+            &hmac_secret_clone,
+            &message_id_clone,
+            &mgmt_user_clone,
+            &mgmt_pass_clone,
+        );
     });
 
     // read and process AMQP message
@@ -401,7 +416,13 @@ async fn bad_payload_receive_amqp_message() {
         info!(target: "app", "waiting 2s before running cli command...");
         sleep(Duration::from_millis(2000)).await;
         // send an AMQP message to the server via `rabbitmqadmin` cli
-        run_rabbitmqadmin_cli(json_str.as_str(), &hmac_secret_clone, &message_id_clone, &mgmt_user_clone, &mgmt_pass_clone);
+        run_rabbitmqadmin_cli(
+            json_str.as_str(),
+            &hmac_secret_clone,
+            &message_id_clone,
+            &mgmt_user_clone,
+            &mgmt_pass_clone,
+        );
     });
 
     // read and process AMQP message

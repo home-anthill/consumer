@@ -73,7 +73,7 @@ use consumer::models::sensor::Sensor;
 #[tokio::main]
 async fn main() {
     // 1. Init logger and env
-    let env = init();
+    let (env, _app_env) = init();
 
     // 2. Init MongoDB
     info!(target: "app", "Initializing MongoDB...");

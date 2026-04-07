@@ -1,14 +1,34 @@
 use std::env;
 use std::fmt;
-use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 
 use dotenvy::dotenv;
 use serde::Deserialize;
 use tracing::info;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
+
+/// Which runtime environment the application is running in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppEnv {
+    Testing,
+    Production,
+}
+
+impl AppEnv {
+    /// Reads the `ENV` environment variable. Returns `Testing` only when the
+    /// value is exactly `"testing"`; any other value (including absent) is
+    /// treated as `Production`.
+    pub fn from_env() -> Self {
+        match env::var("ENV").as_deref() {
+            Ok("testing") => Self::Testing,
+            _ => Self::Production,
+        }
+    }
+
+    pub fn is_testing(&self) -> bool {
+        matches!(self, Self::Testing)
+    }
+}
 
 #[derive(Deserialize)]
 pub struct Env {
@@ -35,26 +55,21 @@ impl fmt::Debug for Env {
     }
 }
 
-pub fn init() -> Env {
+pub fn init() -> (Env, AppEnv) {
     // Load the .env file
-    dotenv().inspect_err(|e| eprintln!("Warning: .env file not loaded: {e}")).ok();
+    dotenv().ok();
     let env = envy::from_env::<Env>().expect("failed to parse environment variables");
-    assert!(!env.amqp_hmac_secret.is_empty(), "amqp_hmac_secret must not be empty");
+    let app_env = AppEnv::from_env();
 
-    // Configure logging if not in test env
-    if env::var("ENV").as_deref() != Ok("testing") {
-        let stdout_max_level = match env.log_level.as_deref().unwrap_or("debug").to_lowercase().as_str() {
-            "info" => tracing::Level::INFO,
-            "warn" => tracing::Level::WARN,
-            "error" => tracing::Level::ERROR,
-            _ => tracing::Level::DEBUG,
-        };
-        let log_dir = "./logs";
-        fs::create_dir_all(log_dir).expect("failed to create log directory");
-        #[cfg(unix)]
-        fs::set_permissions(log_dir, fs::Permissions::from_mode(0o700))
-            .expect("failed to set log directory permissions");
-
+    // Configure logging if not in test env.
+    // We use set_global_default (not .init()) intentionally: .init() would also install
+    // a LogTracer bridge for the `log` crate, which prevents Rocket from installing its
+    // own RocketLogger. Without RocketLogger, Rocket's startup output (routes, config,
+    // launched URL) is silently dropped. By skipping LogTracer, Rocket gets to install
+    // its own logger and prints its startup info directly to stdout.
+    if !app_env.is_testing() {
+        let stdout_max_level =
+            env.log_level.as_deref().and_then(|s| s.parse::<tracing::Level>().ok()).unwrap_or(tracing::Level::DEBUG);
         let stdout = std::io::stdout.with_filter(|meta| meta.target() == "app").with_max_level(stdout_max_level);
         let debug_file = RollingFileAppender::builder()
             .rotation(Rotation::DAILY)
@@ -74,19 +89,20 @@ pub fn init() -> Env {
             .with_filter(|meta| meta.target() == "app")
             .with_max_level(tracing::Level::ERROR);
         let writer = debug_file.and(error_file).and(stdout);
-        tracing_subscriber::fmt()
+        let subscriber = tracing_subscriber::fmt()
             .compact()
             .with_writer(writer)
             .with_ansi(false)
             .with_max_level(tracing::Level::DEBUG)
-            .init();
+            .finish();
+        tracing::subscriber::set_global_default(subscriber).expect("Unable to install global subscriber");
     }
 
     info!(target: "app", "Starting application...");
 
     // Print .env vars
     print_env(&env);
-    env
+    (env, app_env)
 }
 
 pub(crate) fn redact_uri(uri: &str) -> String {
