@@ -88,7 +88,7 @@ fn purge_queue_rabbitmqadmin_cli(username: &str, password: &str) {
 #[test_log::test]
 async fn ok_receive_float_amqp_message() {
     // init logger and env variables
-    let env: Env = init();
+    let (env, _app_env) = init();
     let (mgmt_user, mgmt_pass) = extract_management_credentials(&env.amqp_uri);
 
     purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
@@ -191,7 +191,7 @@ async fn ok_receive_float_amqp_message() {
 #[test_log::test]
 async fn ok_receive_int_amqp_message() {
     // init logger and env variables
-    let env: Env = init();
+    let (env, _app_env) = init();
     let (mgmt_user, mgmt_pass) = extract_management_credentials(&env.amqp_uri);
 
     purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
@@ -296,7 +296,7 @@ async fn ok_receive_int_amqp_message() {
 #[test_log::test]
 async fn missing_sensor_receive_amqp_message() {
     // init logger and env variables
-    let env: Env = init();
+    let (env, _app_env) = init();
     let (mgmt_user, mgmt_pass) = extract_management_credentials(&env.amqp_uri);
 
     purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
@@ -382,7 +382,7 @@ async fn missing_sensor_receive_amqp_message() {
 #[test_log::test]
 async fn bad_payload_receive_amqp_message() {
     // init logger and env variables
-    let env: Env = init();
+    let (env, _app_env) = init();
     let (mgmt_user, mgmt_pass) = extract_management_credentials(&env.amqp_uri);
 
     purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
