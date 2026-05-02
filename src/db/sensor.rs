@@ -3,7 +3,7 @@ use std::time::Duration;
 use tracing::{error, info};
 
 use mongodb::Database;
-use mongodb::bson::{Bson, DateTime, doc};
+use mongodb::bson::{Bson, DateTime, Document, doc};
 use mongodb::options::ReturnDocument;
 
 use crate::models::generic_message::GenericMessage;
@@ -50,7 +50,6 @@ pub async fn update_sensor(
     let sensor_doc = collection
         .find_one_and_update(
             doc! {
-                "apiToken": &generic_msg.api_token,
                 "deviceUuid": &generic_msg.device_uuid,
                 "featureUuid": &generic_msg.feature_uuid,
             },
@@ -71,6 +70,23 @@ pub async fn update_sensor(
             generic_msg.device_uuid, generic_msg.feature_uuid);
         Ok(None)
     }
+}
+
+pub async fn find_sensor_api_token(
+    db: &Database,
+    device_uuid: &str,
+    feature_uuid: &str,
+) -> mongodb::error::Result<Option<String>> {
+    let collection = db.collection::<Document>("sensors");
+    let sensor_doc = collection
+        .find_one(doc! {
+            "deviceUuid": device_uuid,
+            "featureUuid": feature_uuid,
+        })
+        .projection(doc! {"apiToken": 1})
+        .max_time(Duration::from_secs(30))
+        .await?;
+    Ok(sensor_doc.and_then(|doc| doc.get_str("apiToken").ok().map(str::to_owned)))
 }
 
 #[cfg(test)]

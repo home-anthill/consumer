@@ -18,6 +18,7 @@
 ## Bug Fixes
 
 - `connect()` delegates to private `do_connect()` so the `connecting` flag is always reset on error, preventing the client from getting stuck.
+- AMQP queue declaration now uses `durable: true` because RabbitMQ 4.x rejects transient non-exclusive named queues by default through the deprecated `transient_nonexcl_queues` feature.
 - `IndexKeySpecsConflict` detected via `ErrorKind::Command` code 86 instead of fragile string matching.
 - Ack/nack failures now call `wait_for_recovery()` instead of being silently ignored.
 - Non-Unix `ctrl_c()` handler registration failure is now logged instead of silently swallowed.

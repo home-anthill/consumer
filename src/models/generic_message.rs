@@ -14,9 +14,11 @@ const KNOWN_FEATURES: &[&str] = &["temperature", "humidity", "light", "airpressu
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenericMessage {
-    pub api_token: String,
     pub device_uuid: String,
     pub feature_uuid: String,
+    pub timestamp: i64,
+    pub nonce: String,
+    pub signature: String,
     pub topic: Topic,
     // payload is variable, because it can be PayloadTrait (Temperature, Humidity...)
     // so I need to parse something that cannot be expressed with a fixed struct
@@ -26,9 +28,11 @@ pub struct GenericMessage {
 impl fmt::Debug for GenericMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GenericMessage")
-            .field("api_token", &"[REDACTED]")
             .field("device_uuid", &self.device_uuid)
             .field("feature_uuid", &self.feature_uuid)
+            .field("timestamp", &self.timestamp)
+            .field("nonce", &self.nonce)
+            .field("signature", &"[REDACTED]")
             .field("topic", &self.topic)
             .field("payload", &self.payload)
             .finish()
@@ -39,18 +43,14 @@ impl fmt::Display for GenericMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "GenericMessage {{ api_token: [REDACTED], device_uuid: {}, feature_uuid: {}, topic: {}, payload: {} }}",
-            self.device_uuid, self.feature_uuid, self.topic, self.payload
+            "GenericMessage {{ device_uuid: {}, feature_uuid: {}, timestamp: {}, nonce: {}, signature: [REDACTED], topic: {}, payload: {} }}",
+            self.device_uuid, self.feature_uuid, self.timestamp, self.nonce, self.topic, self.payload
         )
     }
 }
 
 impl GenericMessage {
     pub fn validate(&self) -> Result<(), MessageError> {
-        // H4: validate UUID format for token/uuid fields
-        if Uuid::parse_str(&self.api_token).is_err() {
-            return Err(MessageError::ValidationError("api_token is not a valid UUID".into()));
-        }
         if Uuid::parse_str(&self.device_uuid).is_err() {
             return Err(MessageError::ValidationError("device_uuid is not a valid UUID".into()));
         }
@@ -63,6 +63,15 @@ impl GenericMessage {
         // M3: reject unknown feature names before any DB work is attempted
         if !KNOWN_FEATURES.contains(&self.topic.feature_name.as_str()) {
             return Err(MessageError::ValidationError(format!("unknown feature_name: {}", self.topic.feature_name)));
+        }
+        if self.timestamp <= 0 {
+            return Err(MessageError::ValidationError("timestamp must be positive".into()));
+        }
+        if self.nonce.is_empty() {
+            return Err(MessageError::ValidationError("nonce is required".into()));
+        }
+        if self.signature.is_empty() {
+            return Err(MessageError::ValidationError("signature is required".into()));
         }
         Ok(())
     }
@@ -95,7 +104,6 @@ mod tests {
     #[test]
     #[test_log::test]
     fn ok_get_value_as_bson_f64() {
-        let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
         let device_uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
         let feature_uuid = "41cb3f47-894c-45e9-90d9-a4d4de903896";
         let sensor_type = "temperature";
@@ -103,9 +111,11 @@ mod tests {
 
         let topic: Topic = Topic::new(format!("sensors/{}/{}", device_uuid, sensor_type).as_str()).unwrap();
         let generic_msg: GenericMessage = GenericMessage {
-            api_token: api_token.to_string(),
             device_uuid: device_uuid.to_string(),
             feature_uuid: feature_uuid.to_string(),
+            timestamp: 1_777_630_000,
+            nonce: "00112233445566778899aabbccddeeff".to_string(),
+            signature: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899".to_string(),
             topic,
             payload: json!({ "value": value }),
         };
@@ -117,7 +127,6 @@ mod tests {
     #[test]
     #[test_log::test]
     fn ok_get_value_as_bson_i64() {
-        let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
         let device_uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
         let feature_uuid = "41cb3f47-894c-45e9-90d9-a4d4de903896";
         let sensor_type = "motion";
@@ -125,9 +134,11 @@ mod tests {
 
         let topic: Topic = Topic::new(format!("sensors/{}/{}", device_uuid, sensor_type).as_str()).unwrap();
         let generic_msg: GenericMessage = GenericMessage {
-            api_token: api_token.to_string(),
             device_uuid: device_uuid.to_string(),
             feature_uuid: feature_uuid.to_string(),
+            timestamp: 1_777_630_000,
+            nonce: "00112233445566778899aabbccddeeff".to_string(),
+            signature: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899".to_string(),
             topic,
             payload: json!({ "value": value }),
         };

@@ -20,6 +20,7 @@ pub struct RegisterInput {
 }
 
 pub async fn drop_all_collections(db: &Database) {
+    assert_eq!(db.name(), "sensors_test", "refusing to drop non-test database");
     db.collection::<Document>("sensors").drop().await.expect("drop 'sensors' collection");
 }
 

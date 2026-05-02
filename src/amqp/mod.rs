@@ -122,7 +122,12 @@ impl AmqpClient {
         self.is_initialized(InitLevel::Channel)?;
         let channel = self.channel.as_ref().expect("channel is Some: checked by is_initialized");
         let queue = channel
-            .queue_declare(self.amqp_queue_name.clone(), QueueDeclareOptions::default(), FieldTable::default())
+            .queue_declare(
+                self.amqp_queue_name.clone(),
+                // RabbitMQ 4.x rejects transient non-exclusive queues by default; this named shared queue must be durable.
+                QueueDeclareOptions { durable: true, ..QueueDeclareOptions::default() },
+                FieldTable::default(),
+            )
             .await
             .map_err(|err| {
                 error!(target: "app", "declare_queue - cannot create AMQP queue. Err = {:?}", err);

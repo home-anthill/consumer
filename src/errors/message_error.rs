@@ -19,6 +19,8 @@ pub enum MessageError {
     MissingHmac,
     #[error("Invalid HMAC signature")]
     InvalidHmac,
+    #[error("Message timestamp is outside the allowed freshness window")]
+    StaleTimestamp,
     #[error("Missing message_id in message properties")]
     MissingMessageId,
     #[error("Replayed message_id detected")]

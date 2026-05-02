@@ -95,7 +95,7 @@ pub fn init() -> (Env, AppEnv) {
             .with_ansi(false)
             .with_max_level(tracing::Level::DEBUG)
             .finish();
-        tracing::subscriber::set_global_default(subscriber).expect("Unable to install global subscriber");
+        let _ = tracing::subscriber::set_global_default(subscriber);
     }
 
     info!(target: "app", "Starting application...");

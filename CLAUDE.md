@@ -44,6 +44,7 @@ There are two layers of tests; all run sequentially (`--test-threads 1`):
 - Tests purge the RabbitMQ queue before each test to ensure clean state
 - Test messages are published via `rabbitmqadmin` CLI with HMAC signature and `message_id` headers set by the test
 - RabbitMQ management credentials default to parsing the `AMQP_URI`; override with `AMQP_MANAGEMENT_USER` / `AMQP_MANAGEMENT_PASS` env vars
+- The application queue is declared durable. RabbitMQ 4.x rejects transient non-exclusive queues by default via the deprecated `transient_nonexcl_queues` feature, so do not switch named shared queues back to `QueueDeclareOptions::default()`.
 - `ReplayCache` and `verify_hmac` live in `main.rs` and are imported by integration tests via `use crate::{ReplayCache, process_delivery}`
 - Assertions use `pretty_assertions` for readable diffs
 
@@ -64,7 +65,7 @@ There are two layers of tests; all run sequentially (`--test-threads 1`):
 - This allows temporary network blips to self-heal without crashing the service
 
 **Key modules:**
-- `amqp/` — `AmqpClient` with builder pattern, hierarchical `InitLevel` enum for state tracking. `connect()` delegates to private `do_connect()` so the `connecting` flag is always reset on error. `publish_message()` available but not used by consumer (only by tests). `read_message()` enforces 64 KiB message size limit before UTF-8 decoding.
+- `amqp/` — `AmqpClient` with builder pattern, hierarchical `InitLevel` enum for state tracking. `connect()` delegates to private `do_connect()` so the `connecting` flag is always reset on error. The named shared queue is declared durable because RabbitMQ 4.x denies transient non-exclusive queues by default. `publish_message()` available but not used by consumer (only by tests). `read_message()` enforces 64 KiB message size limit before UTF-8 decoding.
 - `config/` — Environment loading into `Env` struct via `envy`; validates `amqp_hmac_secret` is non-empty at startup. Logging setup: daily rolling file appender with 5-file cap, separate info/error logs in `./logs/`, stdout filtered to target "app", timestamps omitted in compact format (for K8s log aggregation). `redact_uri()` redacts credentials and sensitive query parameters before logging.
 - `db/` — MongoDB connection with exponential backoff retry (50 attempts, ~5 seconds per attempt = ~250 seconds total). Ensures unique index on `(deviceUuid, featureUuid, featureName)` at startup; detects conflicts via `ErrorKind::Command` code 86. `update_sensor()` uses `find_one_and_update` with 30-second timeout. Test database: ENV=testing → switches to `sensors_test`.
 - `models/` — `GenericMessage` (AMQP payload; `api_token` redacted in both `Display` and `Debug` for safety; `get_bson_value()` centralises feature-type routing), `Sensor`/`SensorDocument` (DB models — `SensorDocument.value` is `Bson` to handle both `Double` and `Int64`; `Sensor.value` is `f64`; `id` field uses `#[serde(rename = "_id")]`), `Topic` (parses "family/device_id/feature_name" using `splitn(4, '/')` iterator)

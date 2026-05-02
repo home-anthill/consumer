@@ -1,6 +1,6 @@
 #![allow(clippy::uninlined_format_args)]
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures_lite::StreamExt;
 use hmac::{Hmac, KeyInit, Mac};
@@ -11,12 +11,21 @@ use mongodb::Database;
 use sha2::Sha256;
 use tracing::{debug, error, info};
 
+use consumer::amqp::{AmqpClient, read_message};
+use consumer::config::init;
+use consumer::db::connect;
+use consumer::db::sensor::{find_sensor_api_token, update_sensor};
+use consumer::errors::message_error::MessageError;
+use consumer::models::generic_message::GenericMessage;
+use consumer::models::sensor::Sensor;
+
 type HmacSha256 = Hmac<Sha256>;
 
 /// TTL for replay-detection cache entries.
 const REPLAY_CACHE_TTL: Duration = Duration::from_secs(300);
 /// Maximum number of entries kept in the replay cache at any time.
 const REPLAY_CACHE_MAX_CAPACITY: usize = 10_000;
+const SIGNED_MESSAGE_MAX_SKEW_SECS: i64 = 300;
 
 /// In-memory store of recently seen message IDs used to detect AMQP replays.
 struct ReplayCache {
@@ -62,13 +71,25 @@ fn verify_hmac(secret: &str, message: &[u8], expected_hex: &str) -> bool {
     }
 }
 
-use consumer::amqp::{AmqpClient, read_message};
-use consumer::config::init;
-use consumer::db::connect;
-use consumer::db::sensor::update_sensor;
-use consumer::errors::message_error::MessageError;
-use consumer::models::generic_message::GenericMessage;
-use consumer::models::sensor::Sensor;
+fn build_signed_mqtt_payload(generic_msg: &GenericMessage) -> Result<String, MessageError> {
+    let payload_json = serde_json::to_string(&generic_msg.payload).map_err(|_| MessageError::MessageParsingError)?;
+    Ok(format!(
+        "{}\n{}\n{}\n{}\n{}",
+        generic_msg.device_uuid, generic_msg.feature_uuid, generic_msg.timestamp, generic_msg.nonce, payload_json
+    ))
+}
+
+fn verify_mqtt_signature(api_token: &str, generic_msg: &GenericMessage) -> Result<(), MessageError> {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| MessageError::StaleTimestamp)?.as_secs() as i64;
+    if (now - generic_msg.timestamp).abs() > SIGNED_MESSAGE_MAX_SKEW_SECS {
+        return Err(MessageError::StaleTimestamp);
+    }
+    let signed_payload = build_signed_mqtt_payload(generic_msg)?;
+    if !verify_hmac(api_token, signed_payload.as_bytes(), &generic_msg.signature) {
+        return Err(MessageError::InvalidHmac);
+    }
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() {
@@ -196,8 +217,26 @@ async fn process_delivery(
     generic_msg.validate().inspect_err(|err| {
         error!(target: "app", "process_delivery - message validation failed: {}", err);
     })?;
+    if generic_msg.topic.device_id != generic_msg.device_uuid {
+        error!(target: "app", "process_delivery - topic device does not match payload device");
+        return Err(MessageError::ValidationError("topic device does not match payload device".into()));
+    }
     debug!(target: "app", "process_delivery - message received of type = {}", generic_msg.topic.feature_name);
     debug!(target: "app", "process_delivery - message payload deserialized from JSON = {}", generic_msg);
+
+    let api_token = find_sensor_api_token(database, &generic_msg.device_uuid, &generic_msg.feature_uuid)
+        .await
+        .map_err(|err| {
+            error!(target: "app", "process_delivery - cannot load sensor api token: {:?}", err);
+            MessageError::UpdateDbError(err)
+        })?
+        .ok_or_else(|| {
+            error!(target: "app", "process_delivery - sensor not found for signed message");
+            MessageError::ValidationError("sensor not found".into())
+        })?;
+    verify_mqtt_signature(&api_token, &generic_msg).inspect_err(|err| {
+        error!(target: "app", "process_delivery - signed MQTT payload verification failed: {}", err);
+    })?;
 
     let bson_value = generic_msg.get_bson_value().ok_or_else(|| {
         error!(target: "app", "process_delivery - cannot extract BSON value from payload");

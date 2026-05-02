@@ -1,7 +1,7 @@
 use futures_lite::StreamExt;
 
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, KeyInit, Mac};
 use mongodb::Database;
@@ -13,7 +13,7 @@ use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use consumer::amqp::AmqpClient;
-use consumer::config::{Env, init};
+use consumer::config::init;
 use consumer::db::connect;
 use consumer::errors::message_error::MessageError;
 
@@ -66,6 +66,37 @@ fn run_rabbitmqadmin_cli(payload: &str, hmac_secret: &str, message_id: &str, use
         .expect("publish command failed to start");
 }
 
+fn build_signed_mqtt_message(
+    api_token: &str,
+    device_uuid: &str,
+    feature_uuid: &str,
+    sensor_type: &str,
+    payload: serde_json::Value,
+) -> serde_json::Value {
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    let nonce = "00112233445566778899aabbccddeeff";
+    let payload_json = serde_json::to_string(&payload).unwrap();
+    let signed_payload = format!("{device_uuid}\n{feature_uuid}\n{timestamp}\n{nonce}\n{payload_json}");
+
+    let mut mac = Hmac::<Sha256>::new_from_slice(api_token.as_bytes()).unwrap();
+    mac.update(signed_payload.as_bytes());
+    let signature = hex::encode(mac.finalize().into_bytes());
+
+    json!({
+        "deviceUuid": device_uuid,
+        "featureUuid": feature_uuid,
+        "timestamp": timestamp,
+        "nonce": nonce,
+        "signature": signature,
+        "topic": {
+            "family": "sensors",
+            "deviceId": device_uuid,
+            "featureName": sensor_type
+        },
+        "payload": payload
+    })
+}
+
 fn purge_queue_rabbitmqadmin_cli(username: &str, password: &str) {
     Command::new("rabbitmqadmin")
         .arg("-P")
@@ -112,19 +143,15 @@ async fn ok_receive_float_amqp_message() {
     let api_token: String = Uuid::new_v4().to_string();
     let sensor_type = "temperature";
     let value = 12.23;
-    let json_val = json!({
-        "deviceUuid": device_uuid,
-        "apiToken": api_token,
-        "featureUuid": feature_uuid,
-        "topic": {
-            "family": "sensors",
-            "deviceId": device_uuid,
-            "featureName": sensor_type
-        },
-        "payload": {
+    let json_val = build_signed_mqtt_message(
+        &api_token,
+        &device_uuid,
+        &feature_uuid,
+        sensor_type,
+        json!({
             "value": value
-        }
-    });
+        }),
+    );
     let json_str = serde_json::to_string(&json_val).unwrap();
     debug!(target: "app", "json_str = {}", json_str);
 
@@ -215,19 +242,15 @@ async fn ok_receive_int_amqp_message() {
     let api_token: String = Uuid::new_v4().to_string();
     let sensor_type = "motion";
     let value: i64 = 1;
-    let json_val = json!({
-        "deviceUuid": device_uuid,
-        "apiToken": api_token,
-        "featureUuid": feature_uuid,
-        "topic": {
-            "family": "sensors",
-            "deviceId": device_uuid,
-            "featureName": sensor_type
-        },
-        "payload": {
+    let json_val = build_signed_mqtt_message(
+        &api_token,
+        &device_uuid,
+        &feature_uuid,
+        sensor_type,
+        json!({
             "value": value
-        }
-    });
+        }),
+    );
     let json_str = serde_json::to_string(&json_val).unwrap();
     info!(target: "app", "json_str = {}", json_str);
 
@@ -320,19 +343,15 @@ async fn missing_sensor_receive_amqp_message() {
     let api_token: String = Uuid::new_v4().to_string();
     let sensor_type = "unknowntype";
     let value: f64 = 1.0;
-    let json_val = json!({
-        "deviceUuid": device_uuid,
-        "apiToken": api_token,
-        "featureUuid": feature_uuid,
-        "topic": {
-            "family": "sensors",
-            "deviceId": device_uuid,
-            "featureName": sensor_type
-        },
-        "payload": {
+    let json_val = build_signed_mqtt_message(
+        &api_token,
+        &device_uuid,
+        &feature_uuid,
+        sensor_type,
+        json!({
             "value": value
-        }
-    });
+        }),
+    );
     let json_str = serde_json::to_string(&json_val).unwrap();
     debug!(target: "app", "json_str = {}", json_str);
 
