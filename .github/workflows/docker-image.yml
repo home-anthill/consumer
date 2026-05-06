@@ -60,7 +60,7 @@ jobs:
       - name: Install and start RabbitMQ
         uses: namoshek/rabbitmq-github-action@v1
         with:
-          version: '4.2.2-management'
+          version: '4.3.0-management'
           ports: '15672:15672 15671:15671 5672:5672'
           definitions: ${{ github.workspace }}/.ci/definitions.json
           container-name: 'rabbitmq'
@@ -70,6 +70,12 @@ jobs:
           sudo apt install rustup -y
           cargo install rabbitmqadmin
           rabbitmqadmin --help
+      - name: Install and start Redis
+        uses: shogo82148/actions-setup-redis@v1
+        with:
+          redis-version: "8.x"
+          redis-conf: |
+            user redisuser on >Password1! ~* +@all
       - name: Run tests
         run: |
           cp .env_template .env
