@@ -6,20 +6,21 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use hmac::{Hmac, KeyInit, Mac};
 use mongodb::Database;
 use pretty_assertions::assert_eq;
+use redis::aio::ConnectionManager;
 use serde_json::json;
 use sha2::Sha256;
 use tokio::time::sleep;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use consumer::amqp::AmqpClient;
-use consumer::config::init;
+use consumer::config::{Env, init};
 use consumer::db::connect;
 use consumer::errors::message_error::MessageError;
 
+use crate::process_delivery;
 use crate::tests_integration::db_utils::{RegisterInput, drop_all_collections, insert_sensor};
 use crate::tests_integration::test_utils::{create_register_input, get_random_mac};
-use crate::{ReplayCache, process_delivery};
 
 /// Returns (username, password) for the RabbitMQ Management HTTP API.
 /// Checks AMQP_MANAGEMENT_USER / AMQP_MANAGEMENT_PASS env vars first; if either is absent,
@@ -66,6 +67,28 @@ fn run_rabbitmqadmin_cli(payload: &str, hmac_secret: &str, message_id: &str, use
         .expect("publish command failed to start");
 }
 
+async fn connect_redis(env: &Env) -> ConnectionManager {
+    let redis_url = if env.redis_password.is_empty() {
+        env.redis_uri.clone()
+    } else {
+        match env.redis_uri.find("://") {
+            Some(scheme_end) => format!(
+                "{scheme}{username}:{password}@{rest}",
+                scheme = &env.redis_uri[..scheme_end + 3],
+                username = urlencoding::encode(&env.redis_username),
+                password = urlencoding::encode(&env.redis_password),
+                rest = &env.redis_uri[scheme_end + 3..],
+            ),
+            None => {
+                warn!(target: "app", "REDIS_URI has no recognizable scheme (missing '://'), skipping credential injection");
+                env.redis_uri.clone()
+            }
+        }
+    };
+    let redis_client = redis::Client::open(redis_url).expect("invalid Redis URI");
+    redis_client.get_connection_manager().await.expect("failed to connect to Redis")
+}
+
 fn build_signed_mqtt_message(
     api_token: &str,
     device_uuid: &str,
@@ -74,7 +97,7 @@ fn build_signed_mqtt_message(
     payload: serde_json::Value,
 ) -> serde_json::Value {
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-    let nonce = "00112233445566778899aabbccddeeff";
+    let nonce = Uuid::new_v4().to_string();
     let payload_json = serde_json::to_string(&payload).unwrap();
     let signed_payload = format!("{device_uuid}\n{feature_uuid}\n{timestamp}\n{nonce}\n{payload_json}");
 
@@ -130,6 +153,7 @@ async fn ok_receive_float_amqp_message() {
         error!(target: "app", "MongoDB - cannot connect {:?}", error);
         panic!("cannot connect to MongoDB:: {error:?}")
     });
+    let redis_con = connect_redis(&env).await;
     drop_all_collections(&db).await;
 
     // init AMQP client
@@ -190,7 +214,7 @@ async fn ok_receive_float_amqp_message() {
         .await
         .expect("consumer stream not ended")
         .expect("delivery not an error");
-    let result = process_delivery(&delivery, &db, &env.amqp_hmac_secret, &mut ReplayCache::new()).await;
+    let result = process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret).await;
 
     // check results: resulting sensor should have the updated 'value'
     let sensor = result.unwrap().unwrap();
@@ -229,6 +253,7 @@ async fn ok_receive_int_amqp_message() {
         error!(target: "app", "MongoDB - cannot connect {:?}", error);
         panic!("cannot connect to MongoDB:: {error:?}")
     });
+    let redis_con = connect_redis(&env).await;
     drop_all_collections(&db).await;
 
     // init AMQP client
@@ -291,7 +316,7 @@ async fn ok_receive_int_amqp_message() {
         .await
         .expect("consumer stream not ended")
         .expect("delivery not an error");
-    let result = process_delivery(&delivery, &db, &env.amqp_hmac_secret, &mut ReplayCache::new()).await;
+    let result = process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret).await;
 
     // check results: resulting sensor should have the updated 'value'
     let sensor = result.unwrap().unwrap();
@@ -330,6 +355,7 @@ async fn missing_sensor_receive_amqp_message() {
         error!(target: "app", "MongoDB - cannot connect {:?}", error);
         panic!("cannot connect to MongoDB:: {error:?}")
     });
+    let redis_con = connect_redis(&env).await;
     drop_all_collections(&db).await;
 
     // init AMQP client
@@ -382,7 +408,7 @@ async fn missing_sensor_receive_amqp_message() {
         .await
         .expect("consumer stream not ended")
         .expect("delivery not an error");
-    let result = process_delivery(&delivery, &db, &env.amqp_hmac_secret, &mut ReplayCache::new()).await;
+    let result = process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret).await;
 
     // check results: it must be an error, because `sensor_type="unknowntype"` is rejected by validate()
     assert_eq!(
@@ -412,6 +438,7 @@ async fn bad_payload_receive_amqp_message() {
         error!(target: "app", "MongoDB - cannot connect {:?}", error);
         panic!("cannot connect to MongoDB:: {error:?}")
     });
+    let redis_con = connect_redis(&env).await;
     drop_all_collections(&db).await;
 
     // init AMQP client
@@ -453,7 +480,7 @@ async fn bad_payload_receive_amqp_message() {
         .await
         .expect("consumer stream not ended")
         .expect("delivery not an error");
-    let result = process_delivery(&delivery, &db, &env.amqp_hmac_secret, &mut ReplayCache::new()).await;
+    let result = process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret).await;
 
     // check results: it must be an error, because json message is not valid (not deserializable as GenericMessage)
     assert_eq!(result.err().unwrap().to_string(), MessageError::MessageParsingError.to_string());

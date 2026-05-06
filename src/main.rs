@@ -1,6 +1,5 @@
 #![allow(clippy::uninlined_format_args)]
-use std::collections::HashMap;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_lite::StreamExt;
 use hmac::{Hmac, KeyInit, Mac};
@@ -8,8 +7,9 @@ use lapin::message::Delivery;
 use lapin::options::{BasicAckOptions, BasicNackOptions};
 use lapin::types::AMQPValue;
 use mongodb::Database;
+use redis::aio::ConnectionManager;
 use sha2::Sha256;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use consumer::amqp::{AmqpClient, read_message};
 use consumer::config::init;
@@ -21,41 +21,10 @@ use consumer::models::sensor::Sensor;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// TTL for replay-detection cache entries.
-const REPLAY_CACHE_TTL: Duration = Duration::from_secs(300);
-/// Maximum number of entries kept in the replay cache at any time.
-const REPLAY_CACHE_MAX_CAPACITY: usize = 10_000;
 const SIGNED_MESSAGE_MAX_SKEW_SECS: i64 = 300;
+const SIGNED_REPLAY_CACHE_TTL_SECS: usize = 720;
 
-/// In-memory store of recently seen message IDs used to detect AMQP replays.
-struct ReplayCache {
-    seen: HashMap<String, Instant>,
-}
-
-impl ReplayCache {
-    fn new() -> Self {
-        Self { seen: HashMap::new() }
-    }
-
-    /// Returns `true` if `message_id` has been seen within the TTL window (replay detected).
-    /// Otherwise records it and returns `false`.
-    fn check_and_insert(&mut self, message_id: &str) -> bool {
-        let now = Instant::now();
-        self.seen.retain(|_, ts| now.duration_since(*ts) < REPLAY_CACHE_TTL);
-        if self.seen.contains_key(message_id) {
-            return true;
-        }
-        if self.seen.len() >= REPLAY_CACHE_MAX_CAPACITY
-            && let Some(oldest) = self.seen.iter().min_by_key(|(_, ts)| *ts).map(|(k, _)| k.clone())
-        {
-            self.seen.remove(&oldest);
-        }
-        self.seen.insert(message_id.to_string(), now);
-        false
-    }
-}
-
-// M1: constant-time HMAC verification — on hex-decode failure we finalize the HMAC
+// Constant-time HMAC verification — on hex-decode failure we finalize the HMAC
 // and discard the result so both paths take the same time.
 fn verify_hmac(secret: &str, message: &[u8], expected_hex: &str) -> bool {
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
@@ -91,6 +60,31 @@ fn verify_mqtt_signature(api_token: &str, generic_msg: &GenericMessage) -> Resul
     Ok(())
 }
 
+fn signed_replay_key(device_uuid: &str, feature_uuid: &str, nonce: &str) -> String {
+    format!("signed-replay:v1:{device_uuid}:{feature_uuid}:{nonce}")
+}
+
+async fn claim_signed_nonce(con: &ConnectionManager, generic_msg: &GenericMessage) -> Result<(), MessageError> {
+    let mut con = con.clone();
+    let key = signed_replay_key(&generic_msg.device_uuid, &generic_msg.feature_uuid, &generic_msg.nonce);
+    let result: Option<String> = redis::cmd("SET")
+        .arg(key)
+        .arg("1")
+        .arg("NX")
+        .arg("EX")
+        .arg(SIGNED_REPLAY_CACHE_TTL_SECS)
+        .query_async(&mut con)
+        .await?;
+    ensure_signed_nonce_claimed(result)
+}
+
+fn ensure_signed_nonce_claimed(result: Option<String>) -> Result<(), MessageError> {
+    if result.is_none() {
+        return Err(MessageError::ReplayDetected);
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
     // 1. Init logger and env
@@ -103,7 +97,33 @@ async fn main() {
         std::process::exit(1)
     });
 
-    // 3. Init RabbitMQ
+    // 3. Init Redis for signed MQTT nonce replay protection.
+    // If credentials are configured, inject them into the URI:
+    //   redis://host:port -> redis://username:password@host:port
+    if !env.redis_username.is_empty() && env.redis_password.is_empty() {
+        warn!(target: "app", "REDIS_USERNAME is set but REDIS_PASSWORD is empty — no authentication will be attempted");
+    }
+    let redis_url = if env.redis_password.is_empty() {
+        env.redis_uri.clone()
+    } else {
+        match env.redis_uri.find("://") {
+            Some(scheme_end) => format!(
+                "{scheme}{username}:{password}@{rest}",
+                scheme = &env.redis_uri[..scheme_end + 3],
+                username = urlencoding::encode(&env.redis_username),
+                password = urlencoding::encode(&env.redis_password),
+                rest = &env.redis_uri[scheme_end + 3..],
+            ),
+            None => {
+                warn!(target: "app", "REDIS_URI has no recognizable scheme (missing '://'), skipping credential injection");
+                env.redis_uri.clone()
+            }
+        }
+    };
+    let redis_client = redis::Client::open(redis_url).expect("invalid Redis URI");
+    let redis_con: ConnectionManager = redis_client.get_connection_manager().await.expect("failed to connect to Redis");
+
+    // 4. Init RabbitMQ
     info!(target: "app", "Initializing RabbitMQ...");
     let mut amqp_client =
         AmqpClient::new(env.amqp_uri.clone(), env.amqp_queue_name.clone()).consumer(env.amqp_consumer_tag.clone());
@@ -111,8 +131,6 @@ async fn main() {
         error!(target: "app", "RabbitMQ - cannot connect {:?}", error);
         std::process::exit(1)
     });
-
-    let mut replay_cache = ReplayCache::new();
 
     // Pin the shutdown future once so signal handlers are registered before the loop starts
     // and are not re-created on each iteration.
@@ -145,7 +163,7 @@ async fn main() {
         match delivery_res {
             Ok(delivery) => {
                 // L3: inline ack/nack so nack failure triggers connection recovery.
-                match process_delivery(&delivery, &database, &env.amqp_hmac_secret, &mut replay_cache).await {
+                match process_delivery(&delivery, &database, &redis_con, &env.amqp_hmac_secret).await {
                     Ok(_) => {
                         if let Err(nack_err) = delivery.ack(BasicAckOptions::default()).await {
                             error!(target: "app", "Failed to ack delivery: {:?}", nack_err);
@@ -181,8 +199,8 @@ async fn main() {
 async fn process_delivery(
     delivery: &Delivery,
     database: &Database,
+    redis_con: &ConnectionManager,
     hmac_secret: &str,
-    replay_cache: &mut ReplayCache,
 ) -> Result<Option<Sensor>, MessageError> {
     let headers = delivery.properties.headers().as_ref().ok_or(MessageError::MissingHmac)?;
     let hmac_val = headers.inner().get("x-hmac-sha256").ok_or(MessageError::MissingHmac)?;
@@ -196,13 +214,6 @@ async fn process_delivery(
     if !verify_hmac(hmac_secret, &delivery.data, expected_hex) {
         error!(target: "app", "process_delivery - invalid HMAC signature");
         return Err(MessageError::InvalidHmac);
-    }
-
-    // H3: Reject replayed messages via message_id.
-    let message_id = delivery.properties.message_id().as_ref().ok_or(MessageError::MissingMessageId)?.to_string();
-    if replay_cache.check_and_insert(&message_id) {
-        error!(target: "app", "process_delivery - replayed message_id detected: {}", message_id);
-        return Err(MessageError::ReplayDetected);
     }
 
     let payload_str = read_message(delivery).inspect_err(|err| {
@@ -236,6 +247,9 @@ async fn process_delivery(
         })?;
     verify_mqtt_signature(&api_token, &generic_msg).inspect_err(|err| {
         error!(target: "app", "process_delivery - signed MQTT payload verification failed: {}", err);
+    })?;
+    claim_signed_nonce(redis_con, &generic_msg).await.inspect_err(|err| {
+        error!(target: "app", "process_delivery - signed MQTT nonce replay check failed: {}", err);
     })?;
 
     let bson_value = generic_msg.get_bson_value().ok_or_else(|| {

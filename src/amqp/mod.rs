@@ -9,7 +9,6 @@ use lapin::{
 use tracing::{debug, error, info};
 use zeroize::Zeroizing;
 
-use crate::config::redact_uri;
 use crate::errors::amqp_error::AmqpError;
 
 // Fix 8: replace four boolean parameters with a hierarchical level enum
@@ -67,7 +66,7 @@ impl AmqpClient {
     }
 
     pub async fn connect(&mut self, is_consumer: bool) -> Result<(), AmqpError> {
-        info!(target: "app", "connect - trying to connect to amqp_uri={} with queue={}", redact_uri(&self.amqp_uri), &self.amqp_queue_name);
+        info!(target: "app", "connect - trying to connect to AMQP with queue={}", &self.amqp_queue_name);
         self.connecting = true;
         let result = self.do_connect(is_consumer).await;
         self.connecting = false;

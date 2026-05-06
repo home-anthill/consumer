@@ -34,6 +34,9 @@ impl AppEnv {
 pub struct Env {
     pub mongo_uri: String,
     pub mongo_db_name: String,
+    pub redis_uri: String,
+    pub redis_username: String,
+    pub redis_password: String,
     pub amqp_uri: String,
     pub amqp_hmac_secret: String,
     pub amqp_queue_name: String,
@@ -44,9 +47,12 @@ pub struct Env {
 impl fmt::Debug for Env {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Env")
-            .field("mongo_uri", &redact_uri(&self.mongo_uri))
+            .field("mongo_uri", &"[REDACTED]")
             .field("mongo_db_name", &self.mongo_db_name)
-            .field("amqp_uri", &redact_uri(&self.amqp_uri))
+            .field("redis_uri", &"[REDACTED]")
+            .field("redis_username", &self.redis_username)
+            .field("redis_password", &"[REDACTED]")
+            .field("amqp_uri", &"[REDACTED]")
             .field("amqp_hmac_secret", &"[REDACTED]")
             .field("amqp_queue_name", &self.amqp_queue_name)
             .field("amqp_consumer_tag", &self.amqp_consumer_tag)
@@ -105,37 +111,14 @@ pub fn init() -> (Env, AppEnv) {
     (env, app_env)
 }
 
-pub(crate) fn redact_uri(uri: &str) -> String {
-    // Redact credentials from mongodb://user:pass@host/db URIs
-    let mut redacted = if let Some(at_pos) = uri.find('@')
-        && let Some(scheme_end) = uri.find("://")
-    {
-        format!("{}://***:***@{}", &uri[..scheme_end], &uri[at_pos + 1..])
-    } else {
-        uri.to_string()
-    };
-
-    // Redact sensitive query parameters (password, authSource credentials, TLS key passwords, etc.)
-    for param in &["password", "passwd", "pass", "tlscertificatekeyfilepassword"] {
-        let lower = redacted.to_lowercase();
-        // Search for ?param= or &param= to avoid partial matches (e.g. "nopassword=")
-        let value_start = [format!("?{}=", param), format!("&{}=", param)]
-            .iter()
-            .find_map(|prefix| lower.find(prefix.as_str()).map(|pos| pos + prefix.len()));
-        if let Some(start) = value_start {
-            let end = redacted[start..].find('&').map_or(redacted.len(), |i| start + i);
-            redacted.replace_range(start..end, "***");
-        }
-    }
-
-    redacted
-}
-
 fn print_env(env: &Env) {
     info!(target: "app", "env = {:?}", env);
-    info!(target: "app", "mongo_uri = {}", redact_uri(&env.mongo_uri));
+    info!(target: "app", "mongo_uri = [REDACTED]");
     info!(target: "app", "mongo_db_name = {}", env.mongo_db_name);
-    info!(target: "app", "amqp_uri = {}", redact_uri(&env.amqp_uri));
+    info!(target: "app", "redis_uri = [REDACTED]");
+    info!(target: "app", "redis_username = {}", env.redis_username);
+    info!(target: "app", "redis_password = {}", !env.redis_password.is_empty());
+    info!(target: "app", "amqp_uri = [REDACTED]");
     info!(target: "app", "amqp_hmac_secret = [REDACTED]");
     info!(target: "app", "amqp_queue_name = {}", env.amqp_queue_name);
     info!(target: "app", "amqp_consumer_tag = {}", env.amqp_consumer_tag);

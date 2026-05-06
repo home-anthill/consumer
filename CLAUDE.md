@@ -45,15 +45,15 @@ There are two layers of tests; all run sequentially (`--test-threads 1`):
 - Test messages are published via `rabbitmqadmin` CLI with HMAC signature and `message_id` headers set by the test
 - RabbitMQ management credentials default to parsing the `AMQP_URI`; override with `AMQP_MANAGEMENT_USER` / `AMQP_MANAGEMENT_PASS` env vars
 - The application queue is declared durable. RabbitMQ 4.x rejects transient non-exclusive queues by default via the deprecated `transient_nonexcl_queues` feature, so do not switch named shared queues back to `QueueDeclareOptions::default()`.
-- `ReplayCache` and `verify_hmac` live in `main.rs` and are imported by integration tests via `use crate::{ReplayCache, process_delivery}`
+- `verify_hmac` and `process_delivery` live in `main.rs`; integration tests import `process_delivery` via `use crate::process_delivery`
 - Assertions use `pretty_assertions` for readable diffs
 
 ## Architecture
 
 **Message processing pipeline:**
-1. `main()` → loads config (env vars via `dotenvy`/`envy`), connects to MongoDB (with retry), connects to RabbitMQ via `AmqpClient`
+1. `main()` → loads config (env vars via `dotenvy`/`envy`), connects to MongoDB (with retry), connects to Redis for signed nonce replay protection, connects to RabbitMQ via `AmqpClient`
 2. Consumes messages in a loop via `tokio::select!` with biased SIGTERM/SIGINT shutdown (graceful drain, then `close_connection()`)
-3. Each delivery goes through `process_delivery()`: HMAC-SHA256 verification (constant-time; reads `x-hmac-sha256` header), replay detection via `ReplayCache`, JSON deserialization into `GenericMessage`, validation (UUID format, feature_name whitelist, non-empty fields)
+3. Each delivery goes through `process_delivery()`: AMQP HMAC-SHA256 verification (constant-time; reads `x-hmac-sha256` header), JSON deserialization into `GenericMessage`, validation (UUID format, feature_name whitelist, non-empty fields), signed MQTT HMAC verification, Redis nonce replay claim
 4. `feature_name` routes the sensor value to either `f64` (temperature, humidity, light, airpressure) or `i64` (motion, airquality, online)
 5. The `api_token` from the message is used directly as a query filter in MongoDB (plain UUIDv4)
 6. Updates the sensor document in MongoDB via atomic `findOneAndUpdate` with 30-second timeout
@@ -74,7 +74,7 @@ There are two layers of tests; all run sequentially (`--test-threads 1`):
 ## Configuration
 
 Environment variables (see `.env_template`):
-- `MONGO_URI`, `MONGO_DB_NAME`, `AMQP_URI`, `AMQP_HMAC_SECRET`, `AMQP_QUEUE_NAME`, `AMQP_CONSUMER_TAG`
+- `MONGO_URI`, `MONGO_DB_NAME`, `REDIS_URI`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `AMQP_URI`, `AMQP_HMAC_SECRET`, `AMQP_QUEUE_NAME`, `AMQP_CONSUMER_TAG`
 - `LOG_LEVEL` — optional; controls stdout log level (`debug` default, or `info`/`warn`/`error`)
 
 ## Security
@@ -83,7 +83,7 @@ Environment variables (see `.env_template`):
 - `amqp_hmac_secret` must be non-empty — enforced at startup via `assert!`.
 - `api_token` is redacted in both `Display` and `Debug` impls of `GenericMessage`.
 - Every delivery is HMAC-SHA256 verified using `verify_hmac()` (constant-time: on hex-decode failure the MAC is finalized and discarded so both paths take equal time). HMAC is read from the `x-hmac-sha256` AMQP header.
-- Replay detection uses an in-memory `ReplayCache` (5-minute TTL, 10 000-entry cap); on overflow the oldest entry is evicted.
+- Signed MQTT replay protection uses Redis `SET signed-replay:v1:{device_uuid}:{feature_uuid}:{nonce} 1 NX EX 720` after HMAC verification and before MongoDB updates.
 - AMQP URI credentials are redacted via `redact_uri()` before any logging.
 - `amqp_uri` is stored as `Zeroizing<String>` (from the `zeroize` crate) so the URI is zeroed in memory on drop.
 

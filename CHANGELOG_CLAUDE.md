@@ -4,7 +4,7 @@
 
 - HMAC-SHA256 message authentication added: `x-hmac-sha256` header is verified against the payload using `AMQP_HMAC_SECRET`; missing or invalid signatures are NACKed without requeue.
 - `verify_hmac` uses constant-time comparison to prevent timing side-channels; hex-decode failures follow the same code path so both cases take equal time.
-- `ReplayCache` (5-minute TTL, 10 000-entry cap) added to reject duplicate messages by `message_id`; oldest entry is evicted on overflow.
+- Redis-backed signed nonce replay protection rejects duplicate `device_uuid` + `feature_uuid` + `nonce` combinations with `SET ... NX EX 720`.
 - `amqp_hmac_secret` asserted non-empty at startup; missing `.env` file now surfaces an error instead of being silently ignored.
 - `amqp_uri` wrapped in `Zeroizing<String>`; credentials are zeroed in memory when `AmqpClient` is dropped.
 - `api_token` redacted in both `Display` and `Debug` impls of `GenericMessage`; AMQP URI redacted via `redact_uri()` before any logging.
@@ -29,7 +29,7 @@
 - `validate()` on `GenericMessage` checks non-empty fields, UUID format for `api_token`/`device_uuid`/`feature_uuid`, and `feature_name` against a known-sensor whitelist.
 - `get_bson_value()` centralises feature-name → BSON-type routing.
 - `TopicError` (thiserror) replaces the previous `Result<Self, String>` from `Topic::new`.
-- New `MessageError` variants: `ValidationError`, `MessageTooLarge`, `MissingMessageId`, `ReplayDetected`.
+- New `MessageError` variants: `ValidationError`, `MessageTooLarge`, `ReplayDetected`, `ReplayCacheError`.
 
 ## Idiomatic Rust & Refactoring
 

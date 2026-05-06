@@ -1,3 +1,4 @@
+mod replay_tests;
 mod tests;
 
 // test utils
