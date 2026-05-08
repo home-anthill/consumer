@@ -7,7 +7,6 @@ use lapin::{
     types::FieldTable,
 };
 use tracing::{debug, error, info};
-use zeroize::Zeroizing;
 
 use crate::errors::amqp_error::AmqpError;
 
@@ -21,7 +20,7 @@ enum InitLevel {
 }
 
 pub struct AmqpClient {
-    amqp_uri: Zeroizing<String>,
+    amqp_uri: String,
     amqp_queue_name: ShortString,
     consumer_tag: ShortString,
     properties: ConnectionProperties,
@@ -35,7 +34,7 @@ pub struct AmqpClient {
 impl AmqpClient {
     pub fn new(amqp_uri: String, amqp_queue_name: String) -> Self {
         Self {
-            amqp_uri: Zeroizing::new(amqp_uri),
+            amqp_uri,
             amqp_queue_name: amqp_queue_name.into(),
             properties: ConnectionProperties::default()
                 .with_connection_name("amqp-client".into())

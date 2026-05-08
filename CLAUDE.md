@@ -55,7 +55,7 @@ There are two layers of tests; all run sequentially (`--test-threads 1`):
 2. Consumes messages in a loop via `tokio::select!` with biased SIGTERM/SIGINT shutdown (graceful drain, then `close_connection()`)
 3. Each delivery goes through `process_delivery()`: AMQP HMAC-SHA256 verification (constant-time; reads `x-hmac-sha256` header), JSON deserialization into `GenericMessage`, validation (UUID format, feature_name whitelist, non-empty fields), signed MQTT HMAC verification, Redis nonce replay claim
 4. `feature_name` routes the sensor value to either `f64` (temperature, humidity, light, airpressure) or `i64` (motion, airquality, online)
-5. The `api_token` from the message is used directly as a query filter in MongoDB (plain UUIDv4)
+5. The sensor document is loaded by device/feature identity; `apiTokenEncrypted` is decrypted with `API_TOKEN_ENCRYPTION_KEY` and used to verify the signed MQTT payload.
 6. Updates the sensor document in MongoDB via atomic `findOneAndUpdate` with 30-second timeout
 7. Acks on success, Nacks (no requeue) on error; ack/nack failures trigger `wait_for_recovery()`
 
@@ -74,18 +74,17 @@ There are two layers of tests; all run sequentially (`--test-threads 1`):
 ## Configuration
 
 Environment variables (see `.env_template`):
-- `MONGO_URI`, `MONGO_DB_NAME`, `REDIS_URI`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `AMQP_URI`, `AMQP_HMAC_SECRET`, `AMQP_QUEUE_NAME`, `AMQP_CONSUMER_TAG`
+- `MONGO_URI`, `MONGO_DB_NAME`, `REDIS_URI`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `AMQP_URI`, `AMQP_HMAC_SECRET`, `AMQP_QUEUE_NAME`, `AMQP_CONSUMER_TAG`, `API_TOKEN_ENCRYPTION_KEY`
 - `LOG_LEVEL` — optional; controls stdout log level (`debug` default, or `info`/`warn`/`error`)
 
 ## Security
 
-- `api_token` arriving in AMQP messages is a plain UUIDv4 and is used directly as a query filter in MongoDB.
+- `apiTokenEncrypted` is decrypted with mandatory `API_TOKEN_ENCRYPTION_KEY`; plaintext API tokens are not stored in sensor documents.
 - `amqp_hmac_secret` must be non-empty — enforced at startup via `assert!`.
 - `api_token` is redacted in both `Display` and `Debug` impls of `GenericMessage`.
 - Every delivery is HMAC-SHA256 verified using `verify_hmac()` (constant-time: on hex-decode failure the MAC is finalized and discarded so both paths take equal time). HMAC is read from the `x-hmac-sha256` AMQP header.
 - Signed MQTT replay protection uses Redis `SET signed-replay:v1:{device_uuid}:{feature_uuid}:{nonce} 1 NX EX 720` after HMAC verification and before MongoDB updates.
 - AMQP URI credentials are redacted via `redact_uri()` before any logging.
-- `amqp_uri` is stored as `Zeroizing<String>` (from the `zeroize` crate) so the URI is zeroed in memory on drop.
 
 ## Docker & Deployment
 

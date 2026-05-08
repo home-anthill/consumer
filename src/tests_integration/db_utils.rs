@@ -24,14 +24,22 @@ pub async fn drop_all_collections(db: &Database) {
     db.collection::<Document>("sensors").drop().await.expect("drop 'sensors' collection");
 }
 
-pub async fn insert_sensor(db: &Database, input: RegisterInput, sensor_type: &str) -> Result<String, anyhow::Error> {
+pub async fn insert_sensor(
+    db: &Database,
+    input: RegisterInput,
+    sensor_type: &str,
+    api_token_hash_secret: &str,
+    api_token_encryption_key: &str,
+) -> Result<String, anyhow::Error> {
     let collection = db.collection::<Document>("sensors");
 
     let serialized_data: Bson = match sensor_type {
         "temperature" | "humidity" | "light" | "airpressure" => {
-            new_from_register_input::<FloatSensor>(input, sensor_type)
+            new_from_register_input::<FloatSensor>(input, sensor_type, api_token_hash_secret, api_token_encryption_key)
         }
-        "motion" | "airquality" | "online" => new_from_register_input::<IntSensor>(input, sensor_type),
+        "motion" | "airquality" | "online" => {
+            new_from_register_input::<IntSensor>(input, sensor_type, api_token_hash_secret, api_token_encryption_key)
+        }
         _ => return Err(anyhow::anyhow!("unknown sensor_type: {sensor_type}")),
     };
     let document = serialized_data

@@ -6,6 +6,7 @@ use mongodb::Database;
 use mongodb::bson::{Bson, DateTime, Document, doc};
 use mongodb::options::ReturnDocument;
 
+use crate::api_token::decrypt_api_token;
 use crate::models::generic_message::GenericMessage;
 use crate::models::sensor::Sensor;
 use crate::models::sensor::SensorDocument;
@@ -16,7 +17,7 @@ impl From<&SensorDocument> for Sensor {
             id: sensor_doc.id.to_string(),
             // profile info
             profile_owner_id: sensor_doc.profile_owner_id.to_string(),
-            api_token: sensor_doc.api_token.clone(),
+            api_token_hash: sensor_doc.api_token_hash.clone(),
             // device info
             device_uuid: sensor_doc.device_uuid.clone(),
             mac: sensor_doc.mac.clone(),
@@ -76,6 +77,7 @@ pub async fn find_sensor_api_token(
     db: &Database,
     device_uuid: &str,
     feature_uuid: &str,
+    api_token_encryption_key: &str,
 ) -> mongodb::error::Result<Option<String>> {
     let collection = db.collection::<Document>("sensors");
     let sensor_doc = collection
@@ -83,10 +85,14 @@ pub async fn find_sensor_api_token(
             "deviceUuid": device_uuid,
             "featureUuid": feature_uuid,
         })
-        .projection(doc! {"apiToken": 1})
+        .projection(doc! {"apiTokenEncrypted": 1})
         .max_time(Duration::from_secs(30))
         .await?;
-    Ok(sensor_doc.and_then(|doc| doc.get_str("apiToken").ok().map(str::to_owned)))
+    Ok(sensor_doc.and_then(|doc| {
+        doc.get_str("apiTokenEncrypted")
+            .ok()
+            .and_then(|encrypted| decrypt_api_token(encrypted, api_token_encryption_key).ok())
+    }))
 }
 
 #[cfg(test)]
@@ -106,7 +112,8 @@ mod tests {
         let manufacturer = "ks89";
         let model = "dht-light";
         let profile_owner_id = ObjectId::from_str("620d710e4e8fe8f3394084bc").unwrap();
-        let api_token = "473a4861-632b-4915-b01e-cf1d418966c6";
+        let api_token_hash = "token-hash";
+        let api_token_encrypted = "token-encrypted";
         let date = DateTime::now();
         let value_f64: f64 = 10.2;
         let feature_uuid = "41cb3f47-894c-45e9-90d9-a4d4de903896";
@@ -115,7 +122,8 @@ mod tests {
             id: oid,
             // profile info
             profile_owner_id,
-            api_token: api_token.to_string(),
+            api_token_hash: api_token_hash.to_string(),
+            api_token_encrypted: api_token_encrypted.to_string(),
             // device info
             device_uuid: device_uuid.to_string(),
             mac: mac.to_string(),
@@ -133,7 +141,7 @@ mod tests {
         assert_eq!(sensor.id, oid.to_string());
 
         assert_eq!(sensor.profile_owner_id, profile_owner_id.to_string());
-        assert_eq!(sensor.api_token, api_token.to_string());
+        assert_eq!(sensor.api_token_hash, api_token_hash.to_string());
 
         assert_eq!(sensor.device_uuid, device_uuid.to_string());
         assert_eq!(sensor.mac, mac.to_string());

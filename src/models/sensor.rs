@@ -9,7 +9,8 @@ pub struct SensorDocument {
     pub id: ObjectId,
     // profile info
     pub profile_owner_id: ObjectId,
-    pub api_token: String,
+    pub api_token_hash: String,
+    pub api_token_encrypted: String,
     // device info
     pub device_uuid: String,
     pub mac: String,
@@ -31,7 +32,7 @@ pub struct Sensor {
     pub id: String,
     // profile info
     pub profile_owner_id: String,
-    pub api_token: String,
+    pub api_token_hash: String,
     // device info
     pub device_uuid: String,
     pub mac: String,

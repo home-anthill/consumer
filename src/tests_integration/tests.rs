@@ -14,6 +14,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use consumer::amqp::AmqpClient;
+use consumer::api_token::hash_api_token;
 use consumer::config::{Env, init};
 use consumer::db::connect;
 use consumer::errors::message_error::MessageError;
@@ -142,7 +143,8 @@ fn purge_queue_rabbitmqadmin_cli(username: &str, password: &str) {
 #[test_log::test]
 async fn ok_receive_float_amqp_message() {
     // init logger and env variables
-    let (env, _app_env) = init();
+    let (env, app_env) = init();
+    let api_token_hash_secret = env.api_token_hash_secret(app_env).expect("api token hash secret must be configured");
     let (mgmt_user, mgmt_pass) = extract_management_credentials(&env.amqp_uri);
 
     purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
@@ -186,7 +188,7 @@ async fn ok_receive_float_amqp_message() {
     let model = "test-model";
     let register_body: RegisterInput =
         create_register_input(profile_owner_id, &api_token, &device_uuid, &mac, model, manufacturer, &feature_uuid);
-    let _ = insert_sensor(&db, register_body, sensor_type).await;
+    let _ = insert_sensor(&db, register_body, sensor_type, api_token_hash_secret, &env.api_token_encryption_key).await;
 
     let hmac_secret_clone = env.amqp_hmac_secret.clone();
     let message_id = Uuid::new_v4().to_string();
@@ -214,13 +216,17 @@ async fn ok_receive_float_amqp_message() {
         .await
         .expect("consumer stream not ended")
         .expect("delivery not an error");
-    let result = process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret).await;
+    let result =
+        process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret, &env.api_token_encryption_key).await;
 
     // check results: resulting sensor should have the updated 'value'
     let sensor = result.unwrap().unwrap();
     // profile info
     assert_eq!(sensor.profile_owner_id, profile_owner_id);
-    assert_eq!(sensor.api_token, api_token);
+    assert_eq!(
+        sensor.api_token_hash,
+        hash_api_token(&api_token, api_token_hash_secret).expect("api token hashing must succeed")
+    );
     // device info
     assert_eq!(sensor.device_uuid, device_uuid);
     assert_eq!(sensor.mac, mac);
@@ -242,7 +248,8 @@ async fn ok_receive_float_amqp_message() {
 #[test_log::test]
 async fn ok_receive_int_amqp_message() {
     // init logger and env variables
-    let (env, _app_env) = init();
+    let (env, app_env) = init();
+    let api_token_hash_secret = env.api_token_hash_secret(app_env).expect("api token hash secret must be configured");
     let (mgmt_user, mgmt_pass) = extract_management_credentials(&env.amqp_uri);
 
     purge_queue_rabbitmqadmin_cli(&mgmt_user, &mgmt_pass);
@@ -287,7 +294,7 @@ async fn ok_receive_int_amqp_message() {
     let register_body: RegisterInput =
         create_register_input(profile_owner_id, &api_token, &device_uuid, &mac, model, manufacturer, &feature_uuid);
     info!(target: "app", "inserting sensor");
-    let _ = insert_sensor(&db, register_body, sensor_type).await;
+    let _ = insert_sensor(&db, register_body, sensor_type, api_token_hash_secret, &env.api_token_encryption_key).await;
 
     let hmac_secret_clone = env.amqp_hmac_secret.clone();
     let message_id = Uuid::new_v4().to_string();
@@ -316,13 +323,17 @@ async fn ok_receive_int_amqp_message() {
         .await
         .expect("consumer stream not ended")
         .expect("delivery not an error");
-    let result = process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret).await;
+    let result =
+        process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret, &env.api_token_encryption_key).await;
 
     // check results: resulting sensor should have the updated 'value'
     let sensor = result.unwrap().unwrap();
     // profile info
     assert_eq!(sensor.profile_owner_id, profile_owner_id);
-    assert_eq!(sensor.api_token, api_token);
+    assert_eq!(
+        sensor.api_token_hash,
+        hash_api_token(&api_token, api_token_hash_secret).expect("api token hashing must succeed")
+    );
     // device info
     assert_eq!(sensor.device_uuid, device_uuid);
     assert_eq!(sensor.mac, mac);
@@ -408,7 +419,8 @@ async fn missing_sensor_receive_amqp_message() {
         .await
         .expect("consumer stream not ended")
         .expect("delivery not an error");
-    let result = process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret).await;
+    let result =
+        process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret, &env.api_token_encryption_key).await;
 
     // check results: it must be an error, because `sensor_type="unknowntype"` is rejected by validate()
     assert_eq!(
@@ -480,7 +492,8 @@ async fn bad_payload_receive_amqp_message() {
         .await
         .expect("consumer stream not ended")
         .expect("delivery not an error");
-    let result = process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret).await;
+    let result =
+        process_delivery(&delivery, &db, &redis_con, &env.amqp_hmac_secret, &env.api_token_encryption_key).await;
 
     // check results: it must be an error, because json message is not valid (not deserializable as GenericMessage)
     assert_eq!(result.err().unwrap().to_string(), MessageError::MessageParsingError.to_string());

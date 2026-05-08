@@ -7,6 +7,9 @@ use tracing::info;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
+// this is useful only in testing
+pub const TEST_API_TOKEN_HASH_SECRET: &str = "test-api-token-hash-secret";
+
 /// Which runtime environment the application is running in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppEnv {
@@ -41,7 +44,21 @@ pub struct Env {
     pub amqp_hmac_secret: String,
     pub amqp_queue_name: String,
     pub amqp_consumer_tag: String,
+    pub api_token_encryption_key: String,
+    pub api_token_hash_secret: Option<String>,
     pub log_level: Option<String>,
+}
+
+impl Env {
+    pub fn api_token_hash_secret(&self, app_env: AppEnv) -> Result<&str, String> {
+        if let Some(secret) = self.api_token_hash_secret.as_deref() {
+            return Ok(secret);
+        }
+        if app_env.is_testing() {
+            return Ok(TEST_API_TOKEN_HASH_SECRET);
+        }
+        Err("API_TOKEN_HASH_SECRET is required".to_string())
+    }
 }
 
 impl fmt::Debug for Env {
@@ -56,6 +73,8 @@ impl fmt::Debug for Env {
             .field("amqp_hmac_secret", &"[REDACTED]")
             .field("amqp_queue_name", &self.amqp_queue_name)
             .field("amqp_consumer_tag", &self.amqp_consumer_tag)
+            .field("api_token_encryption_key", &"[REDACTED]")
+            .field("api_token_hash_secret", &"[REDACTED]")
             .field("log_level", &self.log_level)
             .finish()
     }
@@ -122,4 +141,6 @@ fn print_env(env: &Env) {
     info!(target: "app", "amqp_hmac_secret = [REDACTED]");
     info!(target: "app", "amqp_queue_name = {}", env.amqp_queue_name);
     info!(target: "app", "amqp_consumer_tag = {}", env.amqp_consumer_tag);
+    info!(target: "app", "api_token_encryption_key = [REDACTED]");
+    info!(target: "app", "api_token_hash_secret = [REDACTED]");
 }

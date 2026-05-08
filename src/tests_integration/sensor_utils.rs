@@ -3,6 +3,7 @@ use mongodb::bson::{Bson, DateTime, to_bson};
 use serde::{Deserialize, Serialize};
 
 use crate::tests_integration::db_utils::RegisterInput;
+use consumer::api_token::{encrypt_api_token, hash_api_token};
 
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11,7 +12,8 @@ pub struct IntSensor {
     pub id: ObjectId,
     // profile info
     pub profileOwnerId: String,
-    pub apiToken: String,
+    pub apiTokenHash: String,
+    pub apiTokenEncrypted: String,
     // device info
     pub deviceUuid: String,
     pub mac: String,
@@ -33,7 +35,8 @@ pub struct FloatSensor {
     pub id: ObjectId,
     // profile info
     pub profileOwnerId: String,
-    pub apiToken: String,
+    pub apiTokenHash: String,
+    pub apiTokenEncrypted: String,
     // device info
     pub deviceUuid: String,
     pub mac: String,
@@ -57,6 +60,8 @@ pub struct SensorConfig {
     pub manufacturer: String,
     pub feature_uuid: String,
     pub feature_name: String,
+    pub api_token_hash_secret: String,
+    pub api_token_encryption_key: String,
 }
 
 pub trait Sensor {
@@ -81,7 +86,10 @@ impl IntSensor {
         Self {
             id: ObjectId::new(),
             profileOwnerId: config.profile_owner_id,
-            apiToken: config.api_token,
+            apiTokenHash: hash_api_token(&config.api_token, &config.api_token_hash_secret)
+                .expect("api token hashing must succeed"),
+            apiTokenEncrypted: encrypt_api_token(&config.api_token, &config.api_token_encryption_key)
+                .expect("api token encryption must succeed"),
             deviceUuid: config.device_uuid,
             mac: config.mac,
             model: config.model,
@@ -101,7 +109,10 @@ impl FloatSensor {
         Self {
             id: ObjectId::new(),
             profileOwnerId: config.profile_owner_id,
-            apiToken: config.api_token,
+            apiTokenHash: hash_api_token(&config.api_token, &config.api_token_hash_secret)
+                .expect("api token hashing must succeed"),
+            apiTokenEncrypted: encrypt_api_token(&config.api_token, &config.api_token_encryption_key)
+                .expect("api token encryption must succeed"),
             deviceUuid: config.device_uuid,
             mac: config.mac,
             model: config.model,
@@ -115,7 +126,12 @@ impl FloatSensor {
     }
 }
 
-pub fn new_from_register_input<T: Sensor + Serialize>(input: RegisterInput, sensor_type: &str) -> Bson {
+pub fn new_from_register_input<T: Sensor + Serialize>(
+    input: RegisterInput,
+    sensor_type: &str,
+    api_token_hash_secret: &str,
+    api_token_encryption_key: &str,
+) -> Bson {
     let config = SensorConfig {
         profile_owner_id: input.profileOwnerId,
         api_token: input.apiToken,
@@ -125,6 +141,8 @@ pub fn new_from_register_input<T: Sensor + Serialize>(input: RegisterInput, sens
         manufacturer: input.manufacturer,
         feature_uuid: input.featureUuid,
         feature_name: sensor_type.to_string(),
+        api_token_hash_secret: api_token_hash_secret.to_string(),
+        api_token_encryption_key: api_token_encryption_key.to_string(),
     };
     let result = T::new(config);
     to_bson(&result).expect("sensor serialization to BSON cannot fail")

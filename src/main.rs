@@ -163,7 +163,15 @@ async fn main() {
         match delivery_res {
             Ok(delivery) => {
                 // L3: inline ack/nack so nack failure triggers connection recovery.
-                match process_delivery(&delivery, &database, &redis_con, &env.amqp_hmac_secret).await {
+                match process_delivery(
+                    &delivery,
+                    &database,
+                    &redis_con,
+                    &env.amqp_hmac_secret,
+                    &env.api_token_encryption_key,
+                )
+                .await
+                {
                     Ok(_) => {
                         if let Err(nack_err) = delivery.ack(BasicAckOptions::default()).await {
                             error!(target: "app", "Failed to ack delivery: {:?}", nack_err);
@@ -201,6 +209,7 @@ async fn process_delivery(
     database: &Database,
     redis_con: &ConnectionManager,
     hmac_secret: &str,
+    api_token_encryption_key: &str,
 ) -> Result<Option<Sensor>, MessageError> {
     let headers = delivery.properties.headers().as_ref().ok_or(MessageError::MissingHmac)?;
     let hmac_val = headers.inner().get("x-hmac-sha256").ok_or(MessageError::MissingHmac)?;
@@ -235,16 +244,17 @@ async fn process_delivery(
     debug!(target: "app", "process_delivery - message received of type = {}", generic_msg.topic.feature_name);
     debug!(target: "app", "process_delivery - message payload deserialized from JSON = {}", generic_msg);
 
-    let api_token = find_sensor_api_token(database, &generic_msg.device_uuid, &generic_msg.feature_uuid)
-        .await
-        .map_err(|err| {
-            error!(target: "app", "process_delivery - cannot load sensor api token: {:?}", err);
-            MessageError::UpdateDbError(err)
-        })?
-        .ok_or_else(|| {
-            error!(target: "app", "process_delivery - sensor not found for signed message");
-            MessageError::ValidationError("sensor not found".into())
-        })?;
+    let api_token =
+        find_sensor_api_token(database, &generic_msg.device_uuid, &generic_msg.feature_uuid, api_token_encryption_key)
+            .await
+            .map_err(|err| {
+                error!(target: "app", "process_delivery - cannot load sensor api token: {:?}", err);
+                MessageError::UpdateDbError(err)
+            })?
+            .ok_or_else(|| {
+                error!(target: "app", "process_delivery - sensor not found for signed message");
+                MessageError::ValidationError("sensor not found".into())
+            })?;
     verify_mqtt_signature(&api_token, &generic_msg).inspect_err(|err| {
         error!(target: "app", "process_delivery - signed MQTT payload verification failed: {}", err);
     })?;

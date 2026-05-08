@@ -1,3 +1,4 @@
+use dotenvy::dotenv;
 use redis::AsyncCommands;
 use redis::aio::ConnectionManager;
 use serde_json::json;
@@ -37,11 +38,11 @@ fn signed_nonce_claim_result_rejects_existing_key() {
 }
 
 #[tokio::test]
-#[ignore = "requires a live Redis instance; set REDIS_TEST_URL when localhost has no unauthenticated Redis"]
 // Replaying a valid signed payload would repeat the original side effect even though the
 // HMAC is still valid, so this verifies Redis rejects the same signed nonce after first use.
 async fn claim_signed_nonce_rejects_duplicate_with_real_redis() {
-    let redis_url = std::env::var("REDIS_TEST_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+    dotenv().ok();
+    let redis_url = std::env::var("REDIS_URI").unwrap();
     let redis_client = redis::Client::open(redis_url).expect("valid Redis URL");
     let con: ConnectionManager = redis_client.get_connection_manager().await.expect("Redis connection");
 
