@@ -4,11 +4,15 @@ use redis::aio::ConnectionManager;
 use serde_json::json;
 use uuid::Uuid;
 
+use consumer::db::sensor::SensorAuth;
 use consumer::errors::message_error::MessageError;
 use consumer::models::generic_message::GenericMessage;
 use consumer::models::topic::Topic;
 
-use crate::{claim_signed_nonce, ensure_signed_nonce_claimed, signed_replay_key};
+use crate::{
+    build_signed_mqtt_payload, claim_signed_nonce, ensure_signed_nonce_claimed,
+    ensure_topic_matches_registered_feature, signed_replay_key,
+};
 
 fn generic_message_with_nonce(device_uuid: &str, feature_uuid: &str, nonce: &str) -> GenericMessage {
     GenericMessage {
@@ -35,6 +39,37 @@ fn signed_nonce_claim_result_rejects_existing_key() {
 
     let err = ensure_signed_nonce_claimed(None).expect_err("duplicate nonce must be rejected");
     assert!(matches!(err, MessageError::ReplayDetected));
+}
+
+#[test]
+fn signed_payload_binds_feature_name() {
+    let msg = generic_message_with_nonce(
+        "246e3256-f0dd-4fcb-82c5-ee20c2267eeb",
+        "41cb3f47-894c-45e9-90d9-a4d4de903896",
+        "nonce-1",
+    );
+
+    let signed_payload = build_signed_mqtt_payload(&msg).expect("signed payload");
+
+    assert_eq!(
+        signed_payload,
+        "246e3256-f0dd-4fcb-82c5-ee20c2267eeb\n41cb3f47-894c-45e9-90d9-a4d4de903896\ntemperature\n1777630000\nnonce-1\n{\"value\":21.0}"
+    );
+}
+
+#[test]
+fn topic_feature_must_match_registered_feature() {
+    let msg = generic_message_with_nonce(
+        "246e3256-f0dd-4fcb-82c5-ee20c2267eeb",
+        "41cb3f47-894c-45e9-90d9-a4d4de903896",
+        "nonce-1",
+    );
+    let sensor_auth = SensorAuth { api_token: "token".to_string(), feature_name: "humidity".to_string() };
+
+    let err =
+        ensure_topic_matches_registered_feature(&msg, &sensor_auth).expect_err("mismatched topic feature must fail");
+
+    assert!(matches!(err, MessageError::ValidationError(_)));
 }
 
 #[tokio::test]

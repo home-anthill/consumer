@@ -14,7 +14,7 @@ use tracing::{debug, error, info, warn};
 use consumer::amqp::{AmqpClient, read_message};
 use consumer::config::init;
 use consumer::db::connect;
-use consumer::db::sensor::{find_sensor_api_token, update_sensor};
+use consumer::db::sensor::{SensorAuth, find_sensor_auth, update_sensor};
 use consumer::errors::message_error::MessageError;
 use consumer::models::generic_message::GenericMessage;
 use consumer::models::sensor::Sensor;
@@ -43,8 +43,13 @@ fn verify_hmac(secret: &str, message: &[u8], expected_hex: &str) -> bool {
 fn build_signed_mqtt_payload(generic_msg: &GenericMessage) -> Result<String, MessageError> {
     let payload_json = serde_json::to_string(&generic_msg.payload).map_err(|_| MessageError::MessageParsingError)?;
     Ok(format!(
-        "{}\n{}\n{}\n{}\n{}",
-        generic_msg.device_uuid, generic_msg.feature_uuid, generic_msg.timestamp, generic_msg.nonce, payload_json
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        generic_msg.device_uuid,
+        generic_msg.feature_uuid,
+        generic_msg.topic.feature_name,
+        generic_msg.timestamp,
+        generic_msg.nonce,
+        payload_json
     ))
 }
 
@@ -81,6 +86,19 @@ async fn claim_signed_nonce(con: &ConnectionManager, generic_msg: &GenericMessag
 fn ensure_signed_nonce_claimed(result: Option<String>) -> Result<(), MessageError> {
     if result.is_none() {
         return Err(MessageError::ReplayDetected);
+    }
+    Ok(())
+}
+
+fn ensure_topic_matches_registered_feature(
+    generic_msg: &GenericMessage,
+    sensor_auth: &SensorAuth,
+) -> Result<(), MessageError> {
+    if generic_msg.topic.feature_name != sensor_auth.feature_name {
+        return Err(MessageError::ValidationError(format!(
+            "topic feature does not match registered feature: topic={}, registered={}",
+            generic_msg.topic.feature_name, sensor_auth.feature_name
+        )));
     }
     Ok(())
 }
@@ -244,18 +262,21 @@ async fn process_delivery(
     debug!(target: "app", "process_delivery - message received of type = {}", generic_msg.topic.feature_name);
     debug!(target: "app", "process_delivery - message payload deserialized from JSON = {}", generic_msg);
 
-    let api_token =
-        find_sensor_api_token(database, &generic_msg.device_uuid, &generic_msg.feature_uuid, api_token_encryption_key)
+    let sensor_auth =
+        find_sensor_auth(database, &generic_msg.device_uuid, &generic_msg.feature_uuid, api_token_encryption_key)
             .await
             .map_err(|err| {
-                error!(target: "app", "process_delivery - cannot load sensor api token: {:?}", err);
+                error!(target: "app", "process_delivery - cannot load sensor auth: {:?}", err);
                 MessageError::UpdateDbError(err)
             })?
             .ok_or_else(|| {
                 error!(target: "app", "process_delivery - sensor not found for signed message");
                 MessageError::ValidationError("sensor not found".into())
             })?;
-    verify_mqtt_signature(&api_token, &generic_msg).inspect_err(|err| {
+    ensure_topic_matches_registered_feature(&generic_msg, &sensor_auth).inspect_err(|err| {
+        error!(target: "app", "process_delivery - topic/feature binding check failed: {}", err);
+    })?;
+    verify_mqtt_signature(&sensor_auth.api_token, &generic_msg).inspect_err(|err| {
         error!(target: "app", "process_delivery - signed MQTT payload verification failed: {}", err);
     })?;
     claim_signed_nonce(redis_con, &generic_msg).await.inspect_err(|err| {

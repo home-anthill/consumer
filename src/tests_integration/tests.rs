@@ -100,7 +100,7 @@ fn build_signed_mqtt_message(
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     let nonce = Uuid::new_v4().to_string();
     let payload_json = serde_json::to_string(&payload).unwrap();
-    let signed_payload = format!("{device_uuid}\n{feature_uuid}\n{timestamp}\n{nonce}\n{payload_json}");
+    let signed_payload = format!("{device_uuid}\n{feature_uuid}\n{sensor_type}\n{timestamp}\n{nonce}\n{payload_json}");
 
     let mut mac = Hmac::<Sha256>::new_from_slice(api_token.as_bytes()).unwrap();
     mac.update(signed_payload.as_bytes());

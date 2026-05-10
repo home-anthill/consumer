@@ -5,6 +5,7 @@
 - HMAC-SHA256 message authentication added: `x-hmac-sha256` header is verified against the payload using `AMQP_HMAC_SECRET`; missing or invalid signatures are NACKed without requeue.
 - `verify_hmac` uses constant-time comparison to prevent timing side-channels; hex-decode failures follow the same code path so both cases take equal time.
 - Redis-backed signed nonce replay protection rejects duplicate `device_uuid` + `feature_uuid` + `nonce` combinations with `SET ... NX EX 720`.
+- Signed sensor payloads now bind `feature_name` into the HMAC input and the consumer verifies the MQTT topic feature name matches the registered MongoDB sensor feature before nonce claim or DB update.
 - Sensor API tokens are no longer read from plaintext MongoDB fields. The consumer decrypts `apiTokenEncrypted` with mandatory `API_TOKEN_ENCRYPTION_KEY` before signed MQTT verification.
 - `amqp_hmac_secret` asserted non-empty at startup; missing `.env` file now surfaces an error instead of being silently ignored.
 - `amqp_uri` wrapped in `Zeroizing<String>`; credentials are zeroed in memory when `AmqpClient` is dropped.

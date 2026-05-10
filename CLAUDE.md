@@ -53,9 +53,9 @@ There are two layers of tests; all run sequentially (`--test-threads 1`):
 **Message processing pipeline:**
 1. `main()` → loads config (env vars via `dotenvy`/`envy`), connects to MongoDB (with retry), connects to Redis for signed nonce replay protection, connects to RabbitMQ via `AmqpClient`
 2. Consumes messages in a loop via `tokio::select!` with biased SIGTERM/SIGINT shutdown (graceful drain, then `close_connection()`)
-3. Each delivery goes through `process_delivery()`: AMQP HMAC-SHA256 verification (constant-time; reads `x-hmac-sha256` header), JSON deserialization into `GenericMessage`, validation (UUID format, feature_name whitelist, non-empty fields), signed MQTT HMAC verification, Redis nonce replay claim
+3. Each delivery goes through `process_delivery()`: AMQP HMAC-SHA256 verification (constant-time; reads `x-hmac-sha256` header), JSON deserialization into `GenericMessage`, validation (UUID format, feature_name whitelist, non-empty fields), registered feature/topic consistency check, signed MQTT HMAC verification, Redis nonce replay claim
 4. `feature_name` routes the sensor value to either `f64` (temperature, humidity, light, airpressure) or `i64` (motion, airquality, online)
-5. The sensor document is loaded by device/feature identity; `apiTokenEncrypted` is decrypted with `API_TOKEN_ENCRYPTION_KEY` and used to verify the signed MQTT payload.
+5. The sensor document is loaded by device/feature identity; `apiTokenEncrypted` is decrypted with `API_TOKEN_ENCRYPTION_KEY` and used to verify the signed MQTT payload. The signed payload format is `deviceUuid\nfeatureUuid\nfeatureName\ntimestamp\nnonce\npayloadJson`.
 6. Updates the sensor document in MongoDB via atomic `findOneAndUpdate` with 30-second timeout
 7. Acks on success, Nacks (no requeue) on error; ack/nack failures trigger `wait_for_recovery()`
 
@@ -83,6 +83,7 @@ Environment variables (see `.env_template`):
 - `amqp_hmac_secret` must be non-empty — enforced at startup via `assert!`.
 - `api_token` is redacted in both `Display` and `Debug` impls of `GenericMessage`.
 - Every delivery is HMAC-SHA256 verified using `verify_hmac()` (constant-time: on hex-decode failure the MAC is finalized and discarded so both paths take equal time). HMAC is read from the `x-hmac-sha256` AMQP header.
+- Signed MQTT telemetry must include the topic feature name in the canonical HMAC input, and that feature name must match the MongoDB sensor registration for the signed `deviceUuid + featureUuid`.
 - Signed MQTT replay protection uses Redis `SET signed-replay:v1:{device_uuid}:{feature_uuid}:{nonce} 1 NX EX 720` after HMAC verification and before MongoDB updates.
 - AMQP URI credentials are redacted via `redact_uri()` before any logging.
 

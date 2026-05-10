@@ -11,6 +11,12 @@ use crate::models::generic_message::GenericMessage;
 use crate::models::sensor::Sensor;
 use crate::models::sensor::SensorDocument;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SensorAuth {
+    pub api_token: String,
+    pub feature_name: String,
+}
+
 impl From<&SensorDocument> for Sensor {
     fn from(sensor_doc: &SensorDocument) -> Self {
         Self {
@@ -73,25 +79,28 @@ pub async fn update_sensor(
     }
 }
 
-pub async fn find_sensor_api_token(
+pub async fn find_sensor_auth(
     db: &Database,
     device_uuid: &str,
     feature_uuid: &str,
     api_token_encryption_key: &str,
-) -> mongodb::error::Result<Option<String>> {
+) -> mongodb::error::Result<Option<SensorAuth>> {
     let collection = db.collection::<Document>("sensors");
     let sensor_doc = collection
         .find_one(doc! {
             "deviceUuid": device_uuid,
             "featureUuid": feature_uuid,
         })
-        .projection(doc! {"apiTokenEncrypted": 1})
+        .projection(doc! {"apiTokenEncrypted": 1, "featureName": 1})
         .max_time(Duration::from_secs(30))
         .await?;
     Ok(sensor_doc.and_then(|doc| {
-        doc.get_str("apiTokenEncrypted")
+        let api_token = doc
+            .get_str("apiTokenEncrypted")
             .ok()
-            .and_then(|encrypted| decrypt_api_token(encrypted, api_token_encryption_key).ok())
+            .and_then(|encrypted| decrypt_api_token(encrypted, api_token_encryption_key).ok())?;
+        let feature_name = doc.get_str("featureName").ok()?.to_string();
+        Some(SensorAuth { api_token, feature_name })
     }))
 }
 
