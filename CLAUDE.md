@@ -74,16 +74,18 @@ There are two layers of tests; all run sequentially (`--test-threads 1`):
 ## Configuration
 
 Environment variables (see `.env_template`):
-- `MONGO_URI`, `MONGO_DB_NAME`, `REDIS_URI`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `AMQP_URI`, `AMQP_HMAC_SECRET`, `AMQP_QUEUE_NAME`, `AMQP_CONSUMER_TAG`, `API_TOKEN_ENCRYPTION_KEY`
+- `MONGO_URI`, `MONGO_DB_NAME`, `REDIS_URI`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `AMQP_URI`, `AMQP_HMAC_SECRET`, `AMQP_QUEUE_NAME`, `AMQP_CONSUMER_TAG`, `API_TOKEN_ENCRYPTION_KEY`, `API_TOKEN_HASH_SECRET`
 - `LOG_LEVEL` — optional; controls stdout log level (`debug` default, or `info`/`warn`/`error`)
 
 ## Security
 
 - `apiTokenEncrypted` is decrypted with mandatory `API_TOKEN_ENCRYPTION_KEY`; plaintext API tokens are not stored in sensor documents.
+- `API_TOKEN_HASH_SECRET` is mandatory in production and must be at least 32 characters.
 - `amqp_hmac_secret` must be non-empty — enforced at startup via `assert!`.
 - `api_token` is redacted in both `Display` and `Debug` impls of `GenericMessage`.
 - Every delivery is HMAC-SHA256 verified using `verify_hmac()` (constant-time: on hex-decode failure the MAC is finalized and discarded so both paths take equal time). HMAC is read from the `x-hmac-sha256` AMQP header.
 - Signed MQTT telemetry must include the topic feature name in the canonical HMAC input, and that feature name must match the MongoDB sensor registration for the signed `deviceUuid + featureUuid`.
+- Signed MQTT nonce/signature fields are strict lowercase hex (`nonce` 32 chars, `signature` 64 chars) before replay-cache keying.
 - Signed MQTT replay protection uses Redis `SET signed-replay:v1:{device_uuid}:{feature_uuid}:{nonce} 1 NX EX 720` after HMAC verification and before MongoDB updates.
 - AMQP URI credentials are redacted via `redact_uri()` before any logging.
 

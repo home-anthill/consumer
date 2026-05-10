@@ -9,6 +9,7 @@ use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 // this is useful only in testing
 pub const TEST_API_TOKEN_HASH_SECRET: &str = "test-api-token-hash-secret";
+const MIN_API_TOKEN_HASH_SECRET_LEN: usize = 32;
 
 /// Which runtime environment the application is running in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +53,11 @@ pub struct Env {
 impl Env {
     pub fn api_token_hash_secret(&self, app_env: AppEnv) -> Result<&str, String> {
         if let Some(secret) = self.api_token_hash_secret.as_deref() {
+            if !app_env.is_testing() && secret.trim().len() < MIN_API_TOKEN_HASH_SECRET_LEN {
+                return Err(format!(
+                    "API_TOKEN_HASH_SECRET must be at least {MIN_API_TOKEN_HASH_SECRET_LEN} characters"
+                ));
+            }
             return Ok(secret);
         }
         if app_env.is_testing() {
@@ -85,6 +91,7 @@ pub fn init() -> (Env, AppEnv) {
     dotenv().ok();
     let env = envy::from_env::<Env>().expect("failed to parse environment variables");
     let app_env = AppEnv::from_env();
+    validate_env(&env, app_env).expect("invalid environment variables");
 
     // Configure logging if not in test env.
     // We use set_global_default (not .init()) intentionally: .init() would also install
@@ -130,6 +137,13 @@ pub fn init() -> (Env, AppEnv) {
     (env, app_env)
 }
 
+fn validate_env(env: &Env, app_env: AppEnv) -> Result<(), String> {
+    if app_env.is_testing() {
+        return Ok(());
+    }
+    env.api_token_hash_secret(app_env).map(|_| ())
+}
+
 fn print_env(env: &Env) {
     info!(target: "app", "env = {:?}", env);
     info!(target: "app", "mongo_uri = [REDACTED]");
@@ -143,4 +157,51 @@ fn print_env(env: &Env) {
     info!(target: "app", "amqp_consumer_tag = {}", env.amqp_consumer_tag);
     info!(target: "app", "api_token_encryption_key = [REDACTED]");
     info!(target: "app", "api_token_hash_secret = [REDACTED]");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppEnv, Env, validate_env};
+
+    fn valid_env(api_token_hash_secret: Option<String>) -> Env {
+        Env {
+            mongo_uri: "mongodb://localhost:27017".to_string(),
+            mongo_db_name: "sensors".to_string(),
+            redis_uri: "redis://localhost:6379".to_string(),
+            redis_username: String::new(),
+            redis_password: String::new(),
+            amqp_uri: "amqp://guest:guest@localhost:5672/%2f".to_string(),
+            amqp_hmac_secret: "amqp-secret".to_string(),
+            amqp_queue_name: "ks89".to_string(),
+            amqp_consumer_tag: "consumer".to_string(),
+            api_token_encryption_key: "0123456789abcdef0123456789abcdef".to_string(),
+            api_token_hash_secret,
+            log_level: Some("debug".to_string()),
+        }
+    }
+
+    #[test]
+    fn production_validate_env_rejects_missing_api_token_hash_secret() {
+        let env = valid_env(None);
+
+        let err = validate_env(&env, AppEnv::Production).expect_err("missing secret must fail in production");
+
+        assert!(err.contains("API_TOKEN_HASH_SECRET"));
+    }
+
+    #[test]
+    fn production_validate_env_rejects_short_api_token_hash_secret() {
+        let env = valid_env(Some("short".to_string()));
+
+        let err = validate_env(&env, AppEnv::Production).expect_err("short secret must fail in production");
+
+        assert!(err.contains("API_TOKEN_HASH_SECRET"));
+    }
+
+    #[test]
+    fn testing_validate_env_allows_missing_api_token_hash_secret() {
+        let env = valid_env(None);
+
+        assert!(validate_env(&env, AppEnv::Testing).is_ok());
+    }
 }

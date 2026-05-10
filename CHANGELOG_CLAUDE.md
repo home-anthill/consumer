@@ -2,6 +2,8 @@
 
 ## Security
 
+- Signed envelope validation tightened: `nonce` must be 32 lowercase-hex characters and `signature` must be 64 lowercase-hex characters before HMAC verification and Redis replay-cache keying.
+- Production startup now rejects missing or weak `API_TOKEN_HASH_SECRET` values; the secret must be at least 32 characters. `.env_template` includes the required variable.
 - HMAC-SHA256 message authentication added: `x-hmac-sha256` header is verified against the payload using `AMQP_HMAC_SECRET`; missing or invalid signatures are NACKed without requeue.
 - `verify_hmac` uses constant-time comparison to prevent timing side-channels; hex-decode failures follow the same code path so both cases take equal time.
 - Redis-backed signed nonce replay protection rejects duplicate `device_uuid` + `feature_uuid` + `nonce` combinations with `SET ... NX EX 720`.

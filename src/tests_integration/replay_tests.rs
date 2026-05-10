@@ -46,14 +46,14 @@ fn signed_payload_binds_feature_name() {
     let msg = generic_message_with_nonce(
         "246e3256-f0dd-4fcb-82c5-ee20c2267eeb",
         "41cb3f47-894c-45e9-90d9-a4d4de903896",
-        "nonce-1",
+        "00112233445566778899aabbccddeeff",
     );
 
     let signed_payload = build_signed_mqtt_payload(&msg).expect("signed payload");
 
     assert_eq!(
         signed_payload,
-        "246e3256-f0dd-4fcb-82c5-ee20c2267eeb\n41cb3f47-894c-45e9-90d9-a4d4de903896\ntemperature\n1777630000\nnonce-1\n{\"value\":21.0}"
+        "246e3256-f0dd-4fcb-82c5-ee20c2267eeb\n41cb3f47-894c-45e9-90d9-a4d4de903896\ntemperature\n1777630000\n00112233445566778899aabbccddeeff\n{\"value\":21.0}"
     );
 }
 
@@ -62,7 +62,7 @@ fn topic_feature_must_match_registered_feature() {
     let msg = generic_message_with_nonce(
         "246e3256-f0dd-4fcb-82c5-ee20c2267eeb",
         "41cb3f47-894c-45e9-90d9-a4d4de903896",
-        "nonce-1",
+        "00112233445566778899aabbccddeeff",
     );
     let sensor_auth = SensorAuth { api_token: "token".to_string(), feature_name: "humidity".to_string() };
 
@@ -83,7 +83,7 @@ async fn claim_signed_nonce_rejects_duplicate_with_real_redis() {
 
     let device_uuid = Uuid::new_v4().to_string();
     let feature_uuid = Uuid::new_v4().to_string();
-    let nonce = Uuid::new_v4().to_string();
+    let nonce = Uuid::new_v4().simple().to_string();
     let generic_msg = generic_message_with_nonce(&device_uuid, &feature_uuid, &nonce);
     let key = signed_replay_key(&device_uuid, &feature_uuid, &nonce);
 

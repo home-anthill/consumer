@@ -9,6 +9,12 @@ use crate::errors::message_error::MessageError;
 use crate::models::topic::Topic;
 
 const KNOWN_FEATURES: &[&str] = &["temperature", "humidity", "light", "airpressure", "motion", "airquality", "online"];
+const SIGNED_NONCE_HEX_LEN: usize = 32;
+const SIGNED_SIGNATURE_HEX_LEN: usize = 64;
+
+fn is_lower_hex(value: &str, expected_len: usize) -> bool {
+    value.len() == expected_len && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
 
 // input message from RabbitMQ
 #[derive(Deserialize)]
@@ -67,11 +73,11 @@ impl GenericMessage {
         if self.timestamp <= 0 {
             return Err(MessageError::ValidationError("timestamp must be positive".into()));
         }
-        if self.nonce.is_empty() {
-            return Err(MessageError::ValidationError("nonce is required".into()));
+        if !is_lower_hex(&self.nonce, SIGNED_NONCE_HEX_LEN) {
+            return Err(MessageError::ValidationError("nonce must be 32 lowercase hex characters".into()));
         }
-        if self.signature.is_empty() {
-            return Err(MessageError::ValidationError("signature is required".into()));
+        if !is_lower_hex(&self.signature, SIGNED_SIGNATURE_HEX_LEN) {
+            return Err(MessageError::ValidationError("signature must be 64 lowercase hex characters".into()));
         }
         Ok(())
     }
@@ -95,11 +101,26 @@ impl GenericMessage {
 
 #[cfg(test)]
 mod tests {
+    use crate::errors::message_error::MessageError;
     use crate::models::generic_message::GenericMessage;
     use crate::models::topic::Topic;
     use mongodb::bson::to_bson;
     use pretty_assertions::assert_eq;
     use serde_json::json;
+
+    fn valid_generic_message() -> GenericMessage {
+        let device_uuid = "246e3256-f0dd-4fcb-82c5-ee20c2267eeb";
+        let sensor_type = "temperature";
+        GenericMessage {
+            device_uuid: device_uuid.to_string(),
+            feature_uuid: "41cb3f47-894c-45e9-90d9-a4d4de903896".to_string(),
+            timestamp: 1_777_630_000,
+            nonce: "00112233445566778899aabbccddeeff".to_string(),
+            signature: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899".to_string(),
+            topic: Topic::new(format!("sensors/{}/{}", device_uuid, sensor_type).as_str()).unwrap(),
+            payload: json!({ "value": 21.0 }),
+        }
+    }
 
     #[test]
     #[test_log::test]
@@ -145,5 +166,25 @@ mod tests {
         let result = generic_msg.get_value_as_bson_i64().unwrap();
         let expected = to_bson::<i64>(&value).unwrap();
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn validate_rejects_malformed_nonce() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.nonce = "00112233-4455-6677-8899-aabbccddeeff".to_string();
+
+        let err = generic_msg.validate().expect_err("malformed nonce must fail validation");
+
+        assert!(matches!(err, MessageError::ValidationError(_)));
+    }
+
+    #[test]
+    fn validate_rejects_malformed_signature() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.signature = "not-hex".to_string();
+
+        let err = generic_msg.validate().expect_err("malformed signature must fail validation");
+
+        assert!(matches!(err, MessageError::ValidationError(_)));
     }
 }
