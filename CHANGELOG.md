@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.1
+
+### Tests
+
+- Added unit coverage for AMQP payload reading, including valid UTF-8, invalid UTF-8, and the 64 KiB message-size guard.
+- Added `GenericMessage` validation coverage for invalid device/feature UUIDs, empty topic segments, unknown feature names, non-positive timestamps, missing payload values, and invalid BSON value routing.
+- Added `Topic::new` coverage for missing and extra topic segments.
+- Added API token tests for deterministic hashing, encrypt/decrypt round trips, invalid encryption keys, invalid base64, short ciphertext, and wrong-key decryption failures.
+- Added config validation tests for accepted production hash secrets and the testing-only default hash secret.
+- Added sensor conversion tests for `Int64`, `Int32`, and non-numeric BSON values.
+- Added signed-message tests for AMQP HMAC verification, invalid HMAC hex, MQTT signature success, stale timestamps, wrong signatures, topic/feature matching, and Redis replay-key scoping.
+
+
 ## 4.0.0
 
 ### Features

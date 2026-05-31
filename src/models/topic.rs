@@ -34,6 +34,7 @@ impl fmt::Display for Topic {
 
 #[cfg(test)]
 mod tests {
+    use crate::errors::topic_error::TopicError;
     use crate::models::topic::Topic;
     use pretty_assertions::assert_eq;
 
@@ -46,5 +47,20 @@ mod tests {
         let topic: Topic = Topic::new(format!("sensors/{}/{}", uuid, sensor_type).as_str()).unwrap();
         let expected = topic.to_string();
         assert_eq!(format!("sensors/{}/{}", uuid, sensor_type), expected);
+    }
+
+    #[test]
+    fn topic_new_rejects_missing_segment() {
+        let err = Topic::new("sensors/device-only").expect_err("missing feature segment must fail");
+
+        assert!(matches!(err, TopicError::InvalidSegmentCount { got: 2, .. }));
+        assert_eq!(err.to_string(), "expected 3 segments in topic 'sensors/device-only', got 2");
+    }
+
+    #[test]
+    fn topic_new_rejects_extra_segment() {
+        let err = Topic::new("sensors/device/temperature/extra").expect_err("extra topic segment must fail");
+
+        assert!(matches!(err, TopicError::InvalidSegmentCount { got: 4, .. }));
     }
 }

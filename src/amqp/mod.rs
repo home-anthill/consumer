@@ -242,9 +242,15 @@ pub fn read_message(delivery: &Delivery) -> Result<&str, crate::errors::message_
 
 #[cfg(test)]
 mod tests {
-    use crate::amqp::{AmqpClient, InitLevel};
+    use crate::amqp::{AmqpClient, InitLevel, read_message};
     use crate::config::Env;
+    use crate::errors::message_error::MessageError;
+    use lapin::message::Delivery;
     use pretty_assertions::assert_eq;
+
+    fn delivery_with_data(data: Vec<u8>) -> Delivery {
+        Delivery::mock(1, "".into(), "".into(), false, data)
+    }
 
     #[test]
     #[test_log::test]
@@ -265,5 +271,32 @@ mod tests {
                 "amqp_client not initialized: amqp_client connection not initialized"
             );
         }
+    }
+
+    #[test]
+    fn read_message_returns_utf8_payload() {
+        let delivery = delivery_with_data(b"{\"value\":21}".to_vec());
+
+        let result = read_message(&delivery).expect("valid UTF-8 payload should be readable");
+
+        assert_eq!(result, "{\"value\":21}");
+    }
+
+    #[test]
+    fn read_message_rejects_invalid_utf8() {
+        let delivery = delivery_with_data(vec![0xff]);
+
+        let err = read_message(&delivery).expect_err("invalid UTF-8 must fail");
+
+        assert!(matches!(err, MessageError::InvalidUtf8(_)));
+    }
+
+    #[test]
+    fn read_message_rejects_oversized_payload() {
+        let delivery = delivery_with_data(vec![b'a'; 65_537]);
+
+        let err = read_message(&delivery).expect_err("oversized payload must fail");
+
+        assert!(matches!(err, MessageError::MessageTooLarge(65_537)));
     }
 }

@@ -1,7 +1,10 @@
 use dotenvy::dotenv;
+use hmac::{Hmac, KeyInit, Mac};
 use redis::AsyncCommands;
 use redis::aio::ConnectionManager;
 use serde_json::json;
+use sha2::Sha256;
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use consumer::db::sensor::SensorAuth;
@@ -11,7 +14,7 @@ use consumer::models::topic::Topic;
 
 use crate::{
     build_signed_mqtt_payload, claim_signed_nonce, ensure_signed_nonce_claimed,
-    ensure_topic_matches_registered_feature, signed_replay_key,
+    ensure_topic_matches_registered_feature, signed_replay_key, verify_hmac, verify_mqtt_signature,
 };
 
 fn generic_message_with_nonce(device_uuid: &str, feature_uuid: &str, nonce: &str) -> GenericMessage {
@@ -24,6 +27,13 @@ fn generic_message_with_nonce(device_uuid: &str, feature_uuid: &str, nonce: &str
         topic: Topic::new(&format!("sensors/{device_uuid}/temperature")).expect("valid topic"),
         payload: json!({ "value": 21.0 }),
     }
+}
+
+fn sign_message(api_token: &str, generic_msg: &GenericMessage) -> String {
+    let signed_payload = build_signed_mqtt_payload(generic_msg).expect("signed payload should build");
+    let mut mac = Hmac::<Sha256>::new_from_slice(api_token.as_bytes()).expect("HMAC key should be valid");
+    mac.update(signed_payload.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
 }
 
 #[test]
@@ -70,6 +80,62 @@ fn topic_feature_must_match_registered_feature() {
         ensure_topic_matches_registered_feature(&msg, &sensor_auth).expect_err("mismatched topic feature must fail");
 
     assert!(matches!(err, MessageError::ValidationError(_)));
+}
+
+#[test]
+fn hmac_verification_accepts_valid_signature() {
+    let mut mac = Hmac::<Sha256>::new_from_slice(b"secret").expect("HMAC key should be valid");
+    mac.update(b"message");
+    let signature = hex::encode(mac.finalize().into_bytes());
+
+    assert!(verify_hmac("secret", b"message", &signature));
+}
+
+#[test]
+fn hmac_verification_rejects_invalid_hex_signature() {
+    assert!(!verify_hmac("secret", b"message", "not-hex"));
+}
+
+#[test]
+fn mqtt_signature_accepts_valid_signed_message() {
+    let api_token = "api-token";
+    let mut msg = generic_message_with_nonce(
+        "246e3256-f0dd-4fcb-82c5-ee20c2267eeb",
+        "41cb3f47-894c-45e9-90d9-a4d4de903896",
+        "00112233445566778899aabbccddeeff",
+    );
+    msg.timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    msg.signature = sign_message(api_token, &msg);
+
+    assert!(verify_mqtt_signature(api_token, &msg).is_ok());
+}
+
+#[test]
+fn mqtt_signature_rejects_stale_timestamp() {
+    let msg = generic_message_with_nonce(
+        "246e3256-f0dd-4fcb-82c5-ee20c2267eeb",
+        "41cb3f47-894c-45e9-90d9-a4d4de903896",
+        "00112233445566778899aabbccddeeff",
+    );
+
+    let err = verify_mqtt_signature("api-token", &msg).expect_err("stale message must fail");
+
+    assert!(matches!(err, MessageError::StaleTimestamp));
+}
+
+#[test]
+fn mqtt_signature_rejects_wrong_signature() {
+    let mut msg = generic_message_with_nonce(
+        "246e3256-f0dd-4fcb-82c5-ee20c2267eeb",
+        "41cb3f47-894c-45e9-90d9-a4d4de903896",
+        "00112233445566778899aabbccddeeff",
+    );
+    msg.timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    msg.signature = "00".repeat(32);
+
+    let err = verify_mqtt_signature("api-token", &msg).expect_err("wrong signature must fail");
+
+    assert!(matches!(err, MessageError::InvalidHmac));
 }
 
 #[tokio::test]

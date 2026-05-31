@@ -54,3 +54,57 @@ fn api_token_encryption_key(key: &str) -> Result<[u8; 32], String> {
     }
     Err("API_TOKEN_ENCRYPTION_KEY must be 32 raw bytes or base64-encoded 32 bytes".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{decrypt_api_token, encrypt_api_token, hash_api_token};
+
+    const ENCRYPTION_KEY: &str = "0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn hash_api_token_is_deterministic() {
+        let first = hash_api_token("api-token", "hash-secret").expect("hash should succeed");
+        let second = hash_api_token("api-token", "hash-secret").expect("hash should succeed");
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn encrypt_then_decrypt_api_token() {
+        let encrypted = encrypt_api_token("api-token", ENCRYPTION_KEY).expect("encryption should succeed");
+        let decrypted = decrypt_api_token(&encrypted, ENCRYPTION_KEY).expect("decryption should succeed");
+
+        assert_eq!(decrypted, "api-token");
+    }
+
+    #[test]
+    fn encrypt_api_token_rejects_invalid_key() {
+        let err = encrypt_api_token("api-token", "too-short").expect_err("invalid key must fail");
+
+        assert!(err.contains("API_TOKEN_ENCRYPTION_KEY"));
+    }
+
+    #[test]
+    fn decrypt_api_token_rejects_invalid_base64() {
+        let err = decrypt_api_token("a", ENCRYPTION_KEY).expect_err("invalid base64 must fail");
+
+        assert!(err.to_ascii_lowercase().contains("invalid"));
+    }
+
+    #[test]
+    fn decrypt_api_token_rejects_short_ciphertext() {
+        let err = decrypt_api_token("YWJj", ENCRYPTION_KEY).expect_err("short ciphertext must fail");
+
+        assert_eq!(err, "encrypted api token is too short");
+    }
+
+    #[test]
+    fn decrypt_api_token_rejects_wrong_key() {
+        let encrypted = encrypt_api_token("api-token", ENCRYPTION_KEY).expect("encryption should succeed");
+
+        let err = decrypt_api_token(&encrypted, "abcdef0123456789abcdef0123456789")
+            .expect_err("wrong key must fail decryption");
+
+        assert!(!err.is_empty());
+    }
+}

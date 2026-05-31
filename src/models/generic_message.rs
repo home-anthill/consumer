@@ -187,4 +187,78 @@ mod tests {
 
         assert!(matches!(err, MessageError::ValidationError(_)));
     }
+
+    #[test]
+    fn validate_rejects_invalid_device_uuid() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.device_uuid = "not-a-uuid".to_string();
+
+        let err = generic_msg.validate().expect_err("invalid device UUID must fail validation");
+
+        assert_eq!(err.to_string(), "Message validation error: device_uuid is not a valid UUID");
+    }
+
+    #[test]
+    fn validate_rejects_invalid_feature_uuid() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.feature_uuid = "not-a-uuid".to_string();
+
+        let err = generic_msg.validate().expect_err("invalid feature UUID must fail validation");
+
+        assert_eq!(err.to_string(), "Message validation error: feature_uuid is not a valid UUID");
+    }
+
+    #[test]
+    fn validate_rejects_empty_topic_segment() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.topic.feature_name = String::new();
+
+        let err = generic_msg.validate().expect_err("empty topic segment must fail validation");
+
+        assert_eq!(err.to_string(), "Message validation error: topic contains empty segments");
+    }
+
+    #[test]
+    fn validate_rejects_unknown_feature_name() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.topic.feature_name = "unknown".to_string();
+
+        let err = generic_msg.validate().expect_err("unknown feature must fail validation");
+
+        assert_eq!(err.to_string(), "Message validation error: unknown feature_name: unknown");
+    }
+
+    #[test]
+    fn validate_rejects_non_positive_timestamp() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.timestamp = 0;
+
+        let err = generic_msg.validate().expect_err("non-positive timestamp must fail validation");
+
+        assert_eq!(err.to_string(), "Message validation error: timestamp must be positive");
+    }
+
+    #[test]
+    fn get_bson_value_returns_none_for_unknown_feature() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.topic.feature_name = "unknown".to_string();
+
+        assert_eq!(generic_msg.get_bson_value(), None);
+    }
+
+    #[test]
+    fn get_value_as_bson_f64_returns_none_for_missing_value() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.payload = json!({});
+
+        assert_eq!(generic_msg.get_value_as_bson_f64(), None);
+    }
+
+    #[test]
+    fn get_value_as_bson_i64_returns_none_for_float_value() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.payload = json!({ "value": 1.5 });
+
+        assert_eq!(generic_msg.get_value_as_bson_i64(), None);
+    }
 }

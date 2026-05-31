@@ -204,4 +204,22 @@ mod tests {
 
         assert!(validate_env(&env, AppEnv::Testing).is_ok());
     }
+
+    #[test]
+    fn production_api_token_hash_secret_accepts_long_secret() {
+        let env = valid_env(Some("12345678901234567890123456789012".to_string()));
+
+        let secret = env.api_token_hash_secret(AppEnv::Production).expect("long production secret should pass");
+
+        assert_eq!(secret, "12345678901234567890123456789012");
+    }
+
+    #[test]
+    fn testing_api_token_hash_secret_uses_default_when_missing() {
+        let env = valid_env(None);
+
+        let secret = env.api_token_hash_secret(AppEnv::Testing).expect("testing default should pass");
+
+        assert_eq!(secret, super::TEST_API_TOKEN_HASH_SECRET);
+    }
 }

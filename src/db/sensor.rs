@@ -112,6 +112,24 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
 
+    fn sensor_document_with_value(value: Bson) -> SensorDocument {
+        SensorDocument {
+            id: ObjectId::from_str("63963ce7c7fd6d463c6c77a3").unwrap(),
+            profile_owner_id: ObjectId::from_str("620d710e4e8fe8f3394084bc").unwrap(),
+            api_token_hash: "token-hash".to_string(),
+            api_token_encrypted: "token-encrypted".to_string(),
+            device_uuid: "246e3256-f0dd-4fcb-82c5-ee20c2267eeb".to_string(),
+            mac: "60:55:F9:DF:F8:92".to_string(),
+            model: "dht-light".to_string(),
+            manufacturer: "ks89".to_string(),
+            feature_uuid: "41cb3f47-894c-45e9-90d9-a4d4de903896".to_string(),
+            feature_name: "temperature".to_string(),
+            value,
+            created_at: DateTime::now(),
+            modified_at: DateTime::now(),
+        }
+    }
+
     #[test]
     #[test_log::test]
     fn call_sensor_from_sensor_document() {
@@ -163,5 +181,32 @@ mod tests {
 
         assert_eq!(sensor.created_at, date.to_string());
         assert_eq!(sensor.modified_at, date.to_string());
+    }
+
+    #[test]
+    fn sensor_from_sensor_document_converts_int64_value() {
+        let sensor_doc = sensor_document_with_value(Bson::Int64(42));
+
+        let sensor = Sensor::from(&sensor_doc);
+
+        assert_eq!(sensor.value, 42.0);
+    }
+
+    #[test]
+    fn sensor_from_sensor_document_converts_int32_value() {
+        let sensor_doc = sensor_document_with_value(Bson::Int32(7));
+
+        let sensor = Sensor::from(&sensor_doc);
+
+        assert_eq!(sensor.value, 7.0);
+    }
+
+    #[test]
+    fn sensor_from_sensor_document_defaults_unknown_value_type_to_zero() {
+        let sensor_doc = sensor_document_with_value(Bson::String("not numeric".to_string()));
+
+        let sensor = Sensor::from(&sensor_doc);
+
+        assert_eq!(sensor.value, 0.0);
     }
 }
