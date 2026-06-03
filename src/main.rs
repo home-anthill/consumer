@@ -122,19 +122,19 @@ async fn main() {
         warn!(target: "app", "REDIS_USERNAME is set but REDIS_PASSWORD is empty — no authentication will be attempted");
     }
     let redis_url = if env.redis_password.is_empty() {
-        env.redis_uri.clone()
+        env.redis_replay_uri.clone()
     } else {
-        match env.redis_uri.find("://") {
+        match env.redis_replay_uri.find("://") {
             Some(scheme_end) => format!(
                 "{scheme}{username}:{password}@{rest}",
-                scheme = &env.redis_uri[..scheme_end + 3],
+                scheme = &env.redis_replay_uri[..scheme_end + 3],
                 username = urlencoding::encode(&env.redis_username),
                 password = urlencoding::encode(&env.redis_password),
-                rest = &env.redis_uri[scheme_end + 3..],
+                rest = &env.redis_replay_uri[scheme_end + 3..],
             ),
             None => {
-                warn!(target: "app", "REDIS_URI has no recognizable scheme (missing '://'), skipping credential injection");
-                env.redis_uri.clone()
+                warn!(target: "app", "REDIS_REPLAY_URI has no recognizable scheme (missing '://'), skipping credential injection");
+                env.redis_replay_uri.clone()
             }
         }
     };

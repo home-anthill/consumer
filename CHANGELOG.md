@@ -1,6 +1,11 @@
 # Changelog
 
+
 ## 4.0.1
+
+### Refactor
+
+- Renamed the signed MQTT nonce replay Redis connection variable from `REDIS_URI` to `REDIS_REPLAY_URI` and kept its default on database `/2`.
 
 ### Tests
 

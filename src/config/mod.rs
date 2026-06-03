@@ -38,7 +38,7 @@ impl AppEnv {
 pub struct Env {
     pub mongo_uri: String,
     pub mongo_db_name: String,
-    pub redis_uri: String,
+    pub redis_replay_uri: String,
     pub redis_username: String,
     pub redis_password: String,
     pub amqp_uri: String,
@@ -72,7 +72,7 @@ impl fmt::Debug for Env {
         f.debug_struct("Env")
             .field("mongo_uri", &"[REDACTED]")
             .field("mongo_db_name", &self.mongo_db_name)
-            .field("redis_uri", &"[REDACTED]")
+            .field("redis_replay_uri", &"[REDACTED]")
             .field("redis_username", &self.redis_username)
             .field("redis_password", &"[REDACTED]")
             .field("amqp_uri", &"[REDACTED]")
@@ -148,7 +148,7 @@ fn print_env(env: &Env) {
     info!(target: "app", "env = {:?}", env);
     info!(target: "app", "mongo_uri = [REDACTED]");
     info!(target: "app", "mongo_db_name = {}", env.mongo_db_name);
-    info!(target: "app", "redis_uri = [REDACTED]");
+    info!(target: "app", "redis_replay_uri = [REDACTED]");
     info!(target: "app", "redis_username = {}", env.redis_username);
     info!(target: "app", "redis_password = {}", !env.redis_password.is_empty());
     info!(target: "app", "amqp_uri = [REDACTED]");
@@ -167,7 +167,7 @@ mod tests {
         Env {
             mongo_uri: "mongodb://localhost:27017".to_string(),
             mongo_db_name: "sensors".to_string(),
-            redis_uri: "redis://localhost:6379".to_string(),
+            redis_replay_uri: "redis://localhost:6379/2".to_string(),
             redis_username: String::new(),
             redis_password: String::new(),
             amqp_uri: "amqp://guest:guest@localhost:5672/%2f".to_string(),

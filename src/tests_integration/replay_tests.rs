@@ -143,7 +143,7 @@ fn mqtt_signature_rejects_wrong_signature() {
 // HMAC is still valid, so this verifies Redis rejects the same signed nonce after first use.
 async fn claim_signed_nonce_rejects_duplicate_with_real_redis() {
     dotenv().ok();
-    let redis_url = std::env::var("REDIS_URI").unwrap();
+    let redis_url = std::env::var("REDIS_REPLAY_URI").unwrap();
     let redis_client = redis::Client::open(redis_url).expect("valid Redis URL");
     let con: ConnectionManager = redis_client.get_connection_manager().await.expect("Redis connection");
 

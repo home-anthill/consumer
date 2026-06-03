@@ -74,7 +74,7 @@ There are two layers of tests; all run sequentially (`--test-threads 1`):
 ## Configuration
 
 Environment variables (see `.env_template`):
-- `MONGO_URI`, `MONGO_DB_NAME`, `REDIS_URI`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `AMQP_URI`, `AMQP_HMAC_SECRET`, `AMQP_QUEUE_NAME`, `AMQP_CONSUMER_TAG`, `API_TOKEN_ENCRYPTION_KEY`, `API_TOKEN_HASH_SECRET`
+- `MONGO_URI`, `MONGO_DB_NAME`, `REDIS_REPLAY_URI`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `AMQP_URI`, `AMQP_HMAC_SECRET`, `AMQP_QUEUE_NAME`, `AMQP_CONSUMER_TAG`, `API_TOKEN_ENCRYPTION_KEY`, `API_TOKEN_HASH_SECRET`
 - `LOG_LEVEL` — optional; controls stdout log level (`debug` default, or `info`/`warn`/`error`)
 
 ## Security
