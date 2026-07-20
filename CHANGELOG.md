@@ -1,7 +1,11 @@
 # Changelog
 
 
-## 4.0.1
+## 4.1.0
+
+### Features
+
+- Added `mode` sensor feature for thermostat
 
 ### Refactor
 
