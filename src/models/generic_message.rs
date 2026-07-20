@@ -12,6 +12,7 @@ const KNOWN_FEATURES: &[&str] =
     &["temperature", "humidity", "light", "airpressure", "motion", "airquality", "online", "mode"];
 const SIGNED_NONCE_HEX_LEN: usize = 32;
 const SIGNED_SIGNATURE_HEX_LEN: usize = 64;
+const MODE_VALUES: &[f64] = &[-1.0, 0.0, 1.0, 2.0];
 
 fn is_lower_hex(value: &str, expected_len: usize) -> bool {
     value.len() == expected_len && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
@@ -71,6 +72,15 @@ impl GenericMessage {
         if !KNOWN_FEATURES.contains(&self.topic.feature_name.as_str()) {
             return Err(MessageError::ValidationError(format!("unknown feature_name: {}", self.topic.feature_name)));
         }
+        if self.topic.feature_name == "mode"
+            && !self
+                .payload
+                .get("value")
+                .and_then(serde_json::Value::as_f64)
+                .is_some_and(|value| MODE_VALUES.contains(&value))
+        {
+            return Err(MessageError::ValidationError("mode value must be one of: -1.0, 0.0, 1.0, 2.0".into()));
+        }
         if self.timestamp <= 0 {
             return Err(MessageError::ValidationError("timestamp must be positive".into()));
         }
@@ -85,8 +95,8 @@ impl GenericMessage {
 
     pub fn get_bson_value(&self) -> Option<Bson> {
         match self.topic.feature_name.as_str() {
-            "temperature" | "humidity" | "light" | "airpressure" => self.get_value_as_bson_f64(),
-            "motion" | "airquality" | "online" | "mode" => self.get_value_as_bson_i64(),
+            "temperature" | "humidity" | "light" | "airpressure" | "mode" => self.get_value_as_bson_f64(),
+            "motion" | "airquality" | "online" => self.get_value_as_bson_i64(),
             _ => None,
         }
     }
@@ -170,13 +180,28 @@ mod tests {
     }
 
     #[test]
-    fn mode_is_valid_and_routed_as_bson_i64() {
-        let mut generic_msg = valid_generic_message();
-        generic_msg.topic.feature_name = "mode".to_string();
-        generic_msg.payload = json!({ "value": -1 });
+    fn mode_admitted_values_are_valid_and_routed_as_bson_f64() {
+        for value in [-1.0, 0.0, 1.0, 2.0] {
+            let mut generic_msg = valid_generic_message();
+            generic_msg.topic.feature_name = "mode".to_string();
+            generic_msg.payload = json!({ "value": value });
 
-        assert!(generic_msg.validate().is_ok());
-        assert_eq!(generic_msg.get_bson_value(), Some(mongodb::bson::Bson::Int64(-1)));
+            assert!(generic_msg.validate().is_ok());
+            assert_eq!(generic_msg.get_bson_value(), Some(mongodb::bson::Bson::Double(value)));
+        }
+    }
+
+    #[test]
+    fn mode_rejects_values_outside_admitted_set() {
+        for value in [-2.0, -0.5, 1.5, 3.0] {
+            let mut generic_msg = valid_generic_message();
+            generic_msg.topic.feature_name = "mode".to_string();
+            generic_msg.payload = json!({ "value": value });
+
+            let err = generic_msg.validate().expect_err("unsupported mode value must fail validation");
+
+            assert_eq!(err.to_string(), "Message validation error: mode value must be one of: -1.0, 0.0, 1.0, 2.0");
+        }
     }
 
     #[test]
