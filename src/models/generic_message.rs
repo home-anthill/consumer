@@ -8,7 +8,8 @@ use uuid::Uuid;
 use crate::errors::message_error::MessageError;
 use crate::models::topic::Topic;
 
-const KNOWN_FEATURES: &[&str] = &["temperature", "humidity", "light", "airpressure", "motion", "airquality", "online"];
+const KNOWN_FEATURES: &[&str] =
+    &["temperature", "humidity", "light", "airpressure", "motion", "airquality", "online", "mode"];
 const SIGNED_NONCE_HEX_LEN: usize = 32;
 const SIGNED_SIGNATURE_HEX_LEN: usize = 64;
 
@@ -85,7 +86,7 @@ impl GenericMessage {
     pub fn get_bson_value(&self) -> Option<Bson> {
         match self.topic.feature_name.as_str() {
             "temperature" | "humidity" | "light" | "airpressure" => self.get_value_as_bson_f64(),
-            "motion" | "airquality" | "online" => self.get_value_as_bson_i64(),
+            "motion" | "airquality" | "online" | "mode" => self.get_value_as_bson_i64(),
             _ => None,
         }
     }
@@ -166,6 +167,16 @@ mod tests {
         let result = generic_msg.get_value_as_bson_i64().unwrap();
         let expected = to_bson::<i64>(&value).unwrap();
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn mode_is_valid_and_routed_as_bson_i64() {
+        let mut generic_msg = valid_generic_message();
+        generic_msg.topic.feature_name = "mode".to_string();
+        generic_msg.payload = json!({ "value": -1 });
+
+        assert!(generic_msg.validate().is_ok());
+        assert_eq!(generic_msg.get_bson_value(), Some(mongodb::bson::Bson::Int64(-1)));
     }
 
     #[test]

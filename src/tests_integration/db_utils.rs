@@ -37,7 +37,7 @@ pub async fn insert_sensor(
         "temperature" | "humidity" | "light" | "airpressure" => {
             new_from_register_input::<FloatSensor>(input, sensor_type, api_token_hash_secret, api_token_encryption_key)
         }
-        "motion" | "airquality" | "online" => {
+        "motion" | "airquality" | "online" | "mode" => {
             new_from_register_input::<IntSensor>(input, sensor_type, api_token_hash_secret, api_token_encryption_key)
         }
         _ => return Err(anyhow::anyhow!("unknown sensor_type: {sensor_type}")),
