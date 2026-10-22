@@ -1,10 +1,12 @@
 # Changelog
 
 
-## 4.1.0
+## 5.0.0
 
 ### Features
 
+- Added support for `altitude`, `co2`, `level`, and `ph` using the existing sensor patterns. Validate and persist the new readings with the matching BSON numeric types.
+- Validate and store `iaq`, `voc`, and `eco2` in the existing float sensor path, with integration coverage.
 - Added `mode` sensor feature for thermostat
 
 ### Refactor

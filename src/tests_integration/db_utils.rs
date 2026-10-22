@@ -34,10 +34,11 @@ pub async fn insert_sensor(
     let collection = db.collection::<Document>("sensors");
 
     let serialized_data: Bson = match sensor_type {
-        "temperature" | "humidity" | "light" | "airpressure" | "mode" => {
+        "temperature" | "humidity" | "light" | "airpressure" | "mode" | "iaq" | "voc" | "eco2" | "altitude" | "ph"
+        | "co2" => {
             new_from_register_input::<FloatSensor>(input, sensor_type, api_token_hash_secret, api_token_encryption_key)
         }
-        "motion" | "airquality" | "online" => {
+        "motion" | "airquality" | "online" | "level" => {
             new_from_register_input::<IntSensor>(input, sensor_type, api_token_hash_secret, api_token_encryption_key)
         }
         _ => return Err(anyhow::anyhow!("unknown sensor_type: {sensor_type}")),

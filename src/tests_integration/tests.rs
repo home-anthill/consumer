@@ -142,6 +142,20 @@ fn purge_queue_rabbitmqadmin_cli(username: &str, password: &str) {
 #[tokio::test]
 #[test_log::test]
 async fn ok_receive_float_amqp_message() {
+    for (sensor_type, value) in [
+        ("temperature", 12.23),
+        ("altitude", -12.5),
+        ("ph", 7.25),
+        ("co2", 850.0),
+        ("iaq", 75.5),
+        ("voc", 0.75),
+        ("eco2", 650.0),
+    ] {
+        receive_float_amqp_message(sensor_type, value).await;
+    }
+}
+
+async fn receive_float_amqp_message(sensor_type: &str, value: f64) {
     // init logger and env variables
     let (env, app_env) = init();
     let api_token_hash_secret = env.api_token_hash_secret(app_env).expect("api token hash secret must be configured");
@@ -167,8 +181,7 @@ async fn ok_receive_float_amqp_message() {
     let device_uuid: String = Uuid::new_v4().to_string();
     let feature_uuid: String = Uuid::new_v4().to_string();
     let api_token: String = Uuid::new_v4().to_string();
-    let sensor_type = "temperature";
-    let value = 12.23;
+
     let json_val = build_signed_mqtt_message(
         &api_token,
         &device_uuid,
@@ -247,6 +260,12 @@ async fn ok_receive_float_amqp_message() {
 #[tokio::test]
 #[test_log::test]
 async fn ok_receive_int_amqp_message() {
+    for (sensor_type, value) in [("motion", 1), ("level", 0), ("level", 1)] {
+        receive_int_amqp_message(sensor_type, value).await;
+    }
+}
+
+async fn receive_int_amqp_message(sensor_type: &str, value: i64) {
     // init logger and env variables
     let (env, app_env) = init();
     let api_token_hash_secret = env.api_token_hash_secret(app_env).expect("api token hash secret must be configured");
@@ -272,8 +291,7 @@ async fn ok_receive_int_amqp_message() {
     let device_uuid: String = Uuid::new_v4().to_string();
     let feature_uuid: String = Uuid::new_v4().to_string();
     let api_token: String = Uuid::new_v4().to_string();
-    let sensor_type = "motion";
-    let value: i64 = 1;
+
     let json_val = build_signed_mqtt_message(
         &api_token,
         &device_uuid,

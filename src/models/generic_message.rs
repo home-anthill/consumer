@@ -8,8 +8,23 @@ use uuid::Uuid;
 use crate::errors::message_error::MessageError;
 use crate::models::topic::Topic;
 
-const KNOWN_FEATURES: &[&str] =
-    &["temperature", "humidity", "light", "airpressure", "motion", "airquality", "online", "mode"];
+const KNOWN_FEATURES: &[&str] = &[
+    "temperature",
+    "humidity",
+    "light",
+    "airpressure",
+    "motion",
+    "airquality",
+    "online",
+    "mode",
+    "iaq",
+    "voc",
+    "eco2",
+    "altitude",
+    "ph",
+    "co2",
+    "level",
+];
 const SIGNED_NONCE_HEX_LEN: usize = 32;
 const SIGNED_SIGNATURE_HEX_LEN: usize = 64;
 const MODE_VALUES: &[f64] = &[-1.0, 0.0, 1.0, 2.0];
@@ -95,8 +110,9 @@ impl GenericMessage {
 
     pub fn get_bson_value(&self) -> Option<Bson> {
         match self.topic.feature_name.as_str() {
-            "temperature" | "humidity" | "light" | "airpressure" | "mode" => self.get_value_as_bson_f64(),
-            "motion" | "airquality" | "online" => self.get_value_as_bson_i64(),
+            "temperature" | "humidity" | "light" | "airpressure" | "mode" | "iaq" | "voc" | "eco2" | "altitude"
+            | "ph" | "co2" => self.get_value_as_bson_f64(),
+            "motion" | "airquality" | "online" | "level" => self.get_value_as_bson_i64(),
             _ => None,
         }
     }
